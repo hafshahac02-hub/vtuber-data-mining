@@ -783,31 +783,3 @@ else:
 # with tab4:
 #     st.markdown("### 📑 Raw Data Chat Interaktif")
 #     st.dataframe(df_filtered, use_container_width=True)
-
-import time
-import os
-
-# 1. Matikan semua proses lama
-# !pkill -f streamlit
-# !pkill -f cloudflared
-
-# 2. Pastikan cloudflared ada
-if not os.path.exists('/usr/local/bin/cloudflared'):
-    !wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared
-    !chmod +x /usr/local/bin/cloudflared
-
-# 3. Jalankan Streamlit & simpan log ke file streamlit.log
-!nohup streamlit run app.py > streamlit.log 2>&1 &
-
-# 4. Jalankan Cloudflare Tunnel
-!nohup /usr/local/bin/cloudflared tunnel --url http://localhost:8501 > cloudflare.log 2>&1 &
-
-time.sleep(6)
-
-# 5. Tampilkan status/error dari Streamlit
-print("=== LOG STREAMLIT (Cek jika ada error Python) ===")
-!cat streamlit.log
-
-print("\n=== LINK DASHBOARD KAMU ===")
-!cat cloudflare.log | grep -o 'https://[^"]*trycloudflare.com'
-
