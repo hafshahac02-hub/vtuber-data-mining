@@ -13,8 +13,6 @@ drive.mount('/content/drive')
 from google.colab import drive
 drive.mount('/content/drive')
 
-!pip install Sastrawi pyLDAvis==3.4.1 gensim
-
 import pandas as pd
 import os
 
@@ -255,8 +253,6 @@ print("\n=== DISTRIBUSI SENTIMEN DATA MASTER ===")
 print(df_master['Prediksi Sentimen'].value_counts())
 print("=======================================")
 
-!pip install gensim
-
 # Commented out IPython magic to ensure Python compatibility.
 # %whos
 
@@ -426,8 +422,6 @@ for lbl in label_unik:
 output_file = os.path.join(FOLDER_PATH, "master_data_vtuber_hasil_prediksi.xlsx")
 df_master.to_excel(output_file, index=False)
 print(f"✅ File berhasil disimpan di Google Drive:\n{output_file}")
-
-!pip install streamlit plotly openpyxl -q
 
 # Commented out IPython magic to ensure Python compatibility.
 # %%writefile app.py
