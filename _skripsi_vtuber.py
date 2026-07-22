@@ -788,8 +788,8 @@ import time
 import os
 
 # 1. Matikan semua proses lama
-!pkill -f streamlit
-!pkill -f cloudflared
+# !pkill -f streamlit
+# !pkill -f cloudflared
 
 # 2. Pastikan cloudflared ada
 if not os.path.exists('/usr/local/bin/cloudflared'):
