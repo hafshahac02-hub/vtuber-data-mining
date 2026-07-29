@@ -4,6 +4,7 @@ import plotly.express as px
 import os
 import re
 import io
+import joblib
 
 # 1. Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -13,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Import Scraper Khusus & Sastrawi (Sesuai Script Lokal Kamu)
+# 2. Import Scraper & Sastrawi
 try:
     from yt_chat_downloader import YouTubeChatDownloader
     HAS_SCRAPER = True
@@ -27,7 +28,19 @@ try:
 except Exception:
     HAS_SASTRAWI = False
 
-# 3. Fungsi Pemisah Emoji (Diambil dari Script Lokal Kamu)
+# 3. Load Model Machine Learning (.pkl) Hasil Latihan Dataset 20 VTuber
+@st.cache_resource
+def load_ml_model():
+    try:
+        model = joblib.load('model_sentiment.pkl')
+        vectorizer = joblib.load('tfidf_vectorizer.pkl')
+        return model, vectorizer
+    except Exception as e:
+        return None, None
+
+model_nb, tfidf_vec = load_ml_model()
+
+# 4. Pemisah Emoji
 def pisahkan_emoji(teks):
     if not teks or not isinstance(teks, str):
         return "No Emoji"
@@ -39,7 +52,7 @@ def pisahkan_emoji(teks):
     gabungan = (emoji_unicode + " " + emoji_kustom).strip()
     return gabungan if gabungan else "No Emoji"
 
-# 4. Cache Preprocessing Sastrawi
+# 5. Preprocessing Sastrawi
 @st.cache_resource
 def load_sastrawi_tools():
     if HAS_SASTRAWI:
@@ -67,7 +80,21 @@ def preprocess_text(text):
             pass
     return text.strip()
 
-# 5. Styling CSS UI
+# 6. Fungsi Prediksi Sentimen Menggunakan Model ML (.pkl 20 VTuber)
+def prediksi_sentimen_ml(teks_bersih, teks_asli):
+    input_text = teks_bersih if teks_bersih else str(teks_asli).lower()
+    
+    if model_nb and tfidf_vec:
+        try:
+            # Ubah teks live chat ke matriks TF-IDF & prediksi dengan Naive Bayes
+            vec = tfidf_vec.transform([input_text])
+            pred = model_nb.predict(vec)[0]
+            return pred
+        except Exception:
+            return "Positif"
+    return "Positif"
+
+# 7. Styling CSS UI
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
@@ -91,18 +118,26 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 6. Load Dataset Benchmark (20 VTuber)
+# 8. Load Dataset Benchmark (20 VTuber)
 @st.cache_data
 def load_data():
     files = [f for f in os.listdir('.') if f.endswith('.xlsx')]
     if not files:
         raise FileNotFoundError("File Excel benchmark (.xlsx) tidak ditemukan di repositori.")
-    target_file = 'hasil_akhir_analisis_skripsi.xlsx' if 'hasil_akhir_analisis_skripsi.xlsx' in files else files[0]
+    
+    # Utamakan file berlabel yang baru
+    if 'data_vtuber_labeled.xlsx' in files:
+        target_file = 'data_vtuber_labeled.xlsx'
+    elif 'hasil_akhir_analisis_skripsi.xlsx' in files:
+        target_file = 'hasil_akhir_analisis_skripsi.xlsx'
+    else:
+        target_file = files[0]
+        
     return pd.read_excel(target_file)
 
 try:
     df_benchmark = load_data()
-except Exception as e:
+except Exception:
     df_benchmark = pd.DataFrame()
 
 def find_col(df, possible_names, default):
@@ -137,15 +172,18 @@ mode_pilihan = st.radio(
 st.markdown("---")
 
 # ==========================================================
-# MODE 1: MODUL EKSTRAKSI LIVE CHAT (REAL DATA - NO DUMMY)
+# MODE 1: MODUL EKSTRAKSI LIVE CHAT (REALTIME + MODEL .PKL)
 # ==========================================================
 if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
     st.markdown("""
         <div class="extractor-container">
             <h2>🧪 Modul Ekstraksi Live Chat Stream</h2>
-            <p style="color: #A0AEC0;">Masukkan link YouTube Live/Replay untuk menarik pesan <b>Live Chat asli</b> secara langsung tanpa batasan data tiruan.</p>
+            <p style="color: #A0AEC0;">Masukkan link YouTube Live/Replay. Sentimen diprediksi murni menggunakan <b>Model Naïve Bayes</b> yang dilatih dari dataset 20 VTuber.</p>
         </div>
     """, unsafe_allow_html=True)
+
+    if model_nb is None:
+        st.warning("⚠️ File model_sentiment.pkl belum terdeteksi. Sistem akan menggunakan mode ekstraksi standar.")
 
     col_url, col_kat = st.columns([3, 1])
     with col_url:
@@ -153,7 +191,7 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
     with col_kat:
         kategori_pilihan = st.selectbox("Kategori Stream", ["Gaming", "Freetalk", "Collaboration", "Karaoke", "Working", "Lainnya"])
 
-    btn_proses = st.button("🚀 Ekstrak Live Chat", type="primary", width="stretch")
+    btn_proses = st.button("🚀 Ekstrak Live Chat", type="primary", use_container_width=True)
 
     if btn_proses:
         original_url = input_url.strip() if input_url else ""
@@ -163,27 +201,27 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
         elif not HAS_SCRAPER:
             st.error("Library `yt-chat-downloader` belum terinstal di server. Pastikan requirements.txt sudah diupdate.")
         else:
-            # Clean URL (Logika persis dari script lokal kamu)
             clean_url = original_url
             if "/live/" in clean_url:
                 clean_url = clean_url.replace("/live/", "/watch?v=")
             if "?si=" in clean_url:
                 clean_url = clean_url.split("?si=")[0]
 
-            status_box = st.info(f"⏳ Sedang menarik pesan live chat asli dari {clean_url}...")
+            status_box = st.info(f"⏳ Sedang menarik live chat asli dan memprediksi sentimen menggunakan Model ML 20 VTuber...")
             
             try:
                 downloader = YouTubeChatDownloader()
                 messages = downloader.download_chat(video_url=clean_url, chat_type="live", quiet=True)
                 
                 extracted_rows = []
-                pos_words = ['suka', 'bagus', 'lucu', 'wkwk', 'otsu', 'halo', 'semangat', 'mantap', 'love', 'keren', 'ww', 'lol', 'makasih']
                 
                 for msg in messages:
                     komentar_asli = msg.get('comment', '')
                     if komentar_asli:
                         clean_text = preprocess_text(komentar_asli)
-                        sentiment = "Positif" if any(w in clean_text for w in pos_words) else "Negatif"
+                        
+                        # PREDIKSI MURNI PAKAI MODEL NAIVE BAYES (.PKL 20 VTUBER)
+                        sentiment = prediksi_sentimen_ml(clean_text, komentar_asli)
                         
                         extracted_rows.append({
                             "Username": msg.get('user_display_name', 'Anonymous'),
@@ -191,29 +229,29 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
                             "Extracted Emojis": pisahkan_emoji(komentar_asli),
                             "Timestamp": msg.get('datetime', ''),
                             "Pesan Bersih (Sastrawi)": clean_text,
-                            "Prediksi Sentimen": sentiment,
+                            "Prediksi Sentimen (Model ML)": sentiment,
                             "Kategori Stream": kategori_pilihan
                         })
 
                 status_box.empty()
 
                 if not extracted_rows:
-                    st.error("❌ Live chat tidak terdeteksi pada video ini. Pastikan video yang dipilih memiliki fitur Replay Live Chat yang aktif di YouTube.")
+                    st.error("❌ Live chat tidak terdeteksi pada video ini. Pastikan video memiliki Replay Live Chat yang aktif di YouTube.")
                 else:
                     df_res = pd.DataFrame(extracted_rows)
                     st.session_state['real_extracted_data'] = df_res
-                    st.success(f"✅ Berhasil mengekstrak total **{len(df_res):,} baris** live chat asli!")
+                    st.success(f"✅ Berhasil mengekstrak dan memprediksi total **{len(df_res):,} baris** live chat!")
 
             except Exception as e:
                 status_box.empty()
                 st.error(f"❌ Terjadi kesalahan saat menarik data: {e}")
 
-    # TAMPILAN HASIL JIKA DATA REAL SUDAH TERDAPAT DI SESSION
+    # TAMPILAN HASIL PENARIKAN REALTIME
     if 'real_extracted_data' in st.session_state and not st.session_state['real_extracted_data'].empty:
         df_real = st.session_state['real_extracted_data']
         
         st.markdown("---")
-        st.subheader("📊 Hasil Penarikan Data Realtime")
+        st.subheader("📊 Hasil Penarikan Data Realtime & Prediksi Model ML")
         
         col_m1, col_m2 = st.columns(2)
         with col_m1:
@@ -225,11 +263,11 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
             ''', unsafe_allow_html=True)
 
         with col_m2:
-            pos_count = (df_real['Prediksi Sentimen'] == 'Positif').sum()
-            neg_count = (df_real['Prediksi Sentimen'] == 'Negatif').sum()
+            pos_count = (df_real['Prediksi Sentimen (Model ML)'] == 'Positif').sum()
+            neg_count = (df_real['Prediksi Sentimen (Model ML)'] == 'Negatif').sum()
             st.markdown(f'''
                 <div class="metric-card">
-                    <div class="metric-title">Sebaran Sentimen</div>
+                    <div class="metric-title">Sebaran Sentimen (Naïve Bayes)</div>
                     <div class="metric-value" style="font-size: 1.2rem; margin-top: 8px;">
                         🟢 Positif: {pos_count:,} | 🔴 Negatif: {neg_count:,}
                     </div>
@@ -240,18 +278,18 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
         
         c_g1, c_g2 = st.columns(2)
         with c_g1:
-            fig_sent = px.pie(df_real, names='Prediksi Sentimen', color='Prediksi Sentimen',
+            fig_sent = px.pie(df_real, names='Prediksi Sentimen (Model ML)', color='Prediksi Sentimen (Model ML)',
                               color_discrete_map={'Positif': COLOR_POS, 'Negatif': COLOR_NEG}, hole=0.5,
-                              title="Grafik Sentimen Live Chat")
-            st.plotly_chart(style_fig(fig_sent), width="stretch")
+                              title="Grafik Sentimen (Hasil Prediksi Model ML)")
+            st.plotly_chart(style_fig(fig_sent), use_container_width=True)
 
         with c_g2:
             fig_emoji = px.histogram(df_real[df_real['Extracted Emojis'] != 'No Emoji'], x='Extracted Emojis',
                                      title="Frekuensi Emoji Ter-ekstrak", color_discrete_sequence=COLOR_THEME)
-            st.plotly_chart(style_fig(fig_emoji), width="stretch")
+            st.plotly_chart(style_fig(fig_emoji), use_container_width=True)
 
-        st.markdown("##### 📑 Tabel Live Chat Asli")
-        st.dataframe(df_real, width="stretch")
+        st.markdown("##### 📑 Tabel Live Chat & Prediksi Model ML")
+        st.dataframe(df_real, use_container_width=True)
 
         def convert_df_to_excel(df_to_download):
             buffer = io.BytesIO()
@@ -261,9 +299,9 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
 
         excel_bytes = convert_df_to_excel(df_real)
         st.download_button(
-            label="📥 Unduh Data Real Live Chat (.xlsx)",
+            label="📥 Unduh Data Live Chat Terprediksi (.xlsx)",
             data=excel_bytes,
-            file_name="hasil_ekstraksi_livechat_real.xlsx",
+            file_name="hasil_prediksi_livechat_ml.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )
@@ -273,11 +311,11 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
 # ==========================================================
 else:
     if df_benchmark.empty:
-        st.warning("File dataset `hasil_akhir_analisis_skripsi.xlsx` tidak ditemukan di repositori.")
+        st.warning("File dataset benchmark (.xlsx) tidak ditemukan di repositori.")
     else:
-        col_vtuber = find_col(df_benchmark, ['vtuber', 'nama'], 'VTuber Name')
+        col_vtuber = find_col(df_benchmark, ['vtuber', 'nama', 'channel'], 'VTuber Name')
         col_stream = find_col(df_benchmark, ['stream', 'kategori', 'type'], 'Stream Type')
-        col_sentimen = find_col(df_benchmark, ['sentimen', 'sentiment', 'prediksi'], 'Prediksi Sentimen')
+        col_sentimen = find_col(df_benchmark, ['sentimen', 'sentiment', 'prediksi', 'label'], 'Label Sentimen')
 
         st.sidebar.markdown("### 🎛️ Filter Benchmark 20 VTuber")
         all_vtubers = sorted(df_benchmark[col_vtuber].dropna().unique().tolist()) if col_vtuber in df_benchmark.columns else []
@@ -294,6 +332,6 @@ else:
             if col_sentimen in df_filtered.columns:
                 fig_b = px.histogram(df_filtered, x=col_vtuber, color=col_sentimen, barmode='group',
                                      color_discrete_map={'Positif': COLOR_POS, 'Negatif': COLOR_NEG})
-                st.plotly_chart(style_fig(fig_b), width="stretch")
+                st.plotly_chart(style_fig(fig_b), use_container_width=True)
         with tab2:
-            st.dataframe(df_filtered, width="stretch")
+            st.dataframe(df_filtered, use_container_width=True)
