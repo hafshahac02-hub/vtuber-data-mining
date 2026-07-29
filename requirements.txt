@@ -5,4 +5,4 @@ plotly
 Sastrawi
 pyLDAvis==3.4.1
 gensim
-youtube-comment-downloader
+chatdownloader
