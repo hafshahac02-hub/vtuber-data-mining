@@ -1,6 +1,8 @@
 streamlit
 pandas
+scikit-learn
 openpyxl
+joblib
 plotly
 Sastrawi
 pyLDAvis
