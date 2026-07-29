@@ -5,4 +5,4 @@ plotly
 Sastrawi
 pyLDAvis
 gensim
-chat-downloader
+yt-chat-downloader
