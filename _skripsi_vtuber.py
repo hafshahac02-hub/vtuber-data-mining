@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 2. Import Scraper & Sastrawi Optional
+# 2. Import Scraper & Sastrawi
 try:
   from yt_chat_downloader import YouTubeChatDownloader
 
@@ -48,7 +48,7 @@ def load_ml_model():
 model_nb, tfidf_vec = load_ml_model()
 
 
-# 4. Preprocessing Sastrawi (Khusus Teks Pendek Realtime)
+# 4. Preprocessing Sastrawi (Untuk Teks Realtime)
 @st.cache_resource
 def load_sastrawi_tools():
   if HAS_SASTRAWI:
@@ -92,11 +92,10 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
   return "Positif"
 
 
-# 6. Pemetaan Topik Berbasis Kata Kunci (Ringan & Cepat Tanpa Stemming Berat)
-def deteksi_topik_cepat(teks_input):
+# 6. Pemetaan Topik Real-time Berdasarkan Kata Kunci LDA
+def deteksi_topik_realtime(teks_input):
   if not teks_input or pd.isna(teks_input):
     return "Topik 2: Respon & Obrolan"
-
   t = str(teks_input).lower()
 
   if any(
@@ -219,16 +218,8 @@ def find_col(df, possible_names):
   return None
 
 
-TOPIC_MAP_NUM = {
-    1: "Topik 1: Sapaan & Interaksi",
-    2: "Topik 2: Respon & Obrolan",
-    3: "Topik 3: Ucapan Datang / Live",
-    4: "Topik 4: Apresiasi Stream (Otsu)",
-    5: "Topik 5: Ekspresi Suka / Tertawa",
-}
-
-
-def process_benchmark_df(df_input):
+# FUNGSI PEMROSESAN BENCHMARK SUPER FAST & BEBAS BLACK SCREEN/GENERAL
+def process_benchmark_data(df_input):
   if df_input.empty:
     return (
         df_input,
@@ -252,17 +243,7 @@ def process_benchmark_df(df_input):
   )
 
   col_topik_raw = find_col(
-      df,
-      [
-          "topik",
-          "topic",
-          "klaster",
-          "cluster",
-          "lda",
-          "dominant",
-          "label_topik",
-          "nama topik",
-      ],
+      df, ["topik", "topic", "klaster", "cluster", "lda", "dominant"]
   )
   col_text_raw = find_col(
       df,
@@ -280,31 +261,79 @@ def process_benchmark_df(df_input):
 
   col_topik = "Nama Topik LDA"
 
-  def convert_row_topic(row):
-    val = row[col_topik_raw] if col_topik_raw and col_topik_raw in row else None
-    chat_str = row[col_text_raw] if col_text_raw and col_text_raw in row else ""
+  topic_labels = {
+      1: "Topik 1: Sapaan & Interaksi",
+      2: "Topik 2: Respon & Obrolan",
+      3: "Topik 3: Ucapan Datang / Live",
+      4: "Topik 4: Apresiasi Stream (Otsu)",
+      5: "Topik 5: Ekspresi Suka / Tertawa",
+  }
 
-    if pd.notna(val):
-      s_val = str(val).strip()
-      for t_name in TOPIC_MAP_NUM.values():
-        if t_name.lower() in s_val.lower():
-          return t_name
+  res_series = pd.Series(index=df.index, dtype=object)
+  mask_missing = pd.Series(True, index=df.index)
 
-      try:
-        num = int(float(s_val))
-        if num in TOPIC_MAP_NUM:
-          return TOPIC_MAP_NUM[num]
-      except Exception:
-        pass
+  # 1. Pemetaan Otomatis Jika Kolom Topik Ada di Excel
+  if col_topik_raw and col_topik_raw in df.columns:
+    s_raw = df[col_topik_raw].astype(str).str.strip()
 
-    return deteksi_topik_cepat(chat_str)
+    cond_already_topic = s_raw.str.contains("Topik", case=False, na=False)
 
-  df[col_topik] = df.apply(convert_row_topic, axis=1)
+    map_dict = {
+        "1": topic_labels[1],
+        "1.0": topic_labels[1],
+        "0": topic_labels[1],
+        "0.0": topic_labels[1],
+        "2": topic_labels[2],
+        "2.0": topic_labels[2],
+        "3": topic_labels[3],
+        "3.0": topic_labels[3],
+        "4": topic_labels[4],
+        "4.0": topic_labels[4],
+        "5": topic_labels[5],
+        "5.0": topic_labels[5],
+    }
+    mapped_series = s_raw.map(map_dict)
+
+    res_series = s_raw.where(cond_already_topic, mapped_series)
+    mask_missing = res_series.isna() | res_series.str.lower().isin(
+        ["general", "nan", "", "none", "null"]
+    )
+
+  # 2. Vektorisasi Kata Kunci Kilat Jika Ada Data Merek "General" / NaN
+  if mask_missing.any() and col_text_raw and col_text_raw in df.columns:
+    text_s = df[col_text_raw].astype(str).str.lower()
+
+    cond4 = text_s.str.contains(
+        r"otsu|otsukare|makasih|terimakasih|stream|terima kasih|\bka\b|\bkak\b",
+        case=False,
+        regex=True,
+    )
+    cond5 = text_s.str.contains(
+        r"wkwk|wkwkwk|haha|hahaha|xixi|lol|suka|ngakak|lagi",
+        case=False,
+        regex=True,
+    )
+    cond3 = text_s.str.contains(
+        r"selamat|datang|welcome|live|semoga|\bthe\b", case=False, regex=True
+    )
+    cond1 = text_s.str.contains(
+        r"halo|hai|bang|malam|pagi|siang|kalian|sil|tris", case=False, regex=True
+    )
+
+    res_text = pd.Series(topic_labels[2], index=df.index)
+    res_text = res_text.mask(cond1, topic_labels[1])
+    res_text = res_text.mask(cond3, topic_labels[3])
+    res_text = res_text.mask(cond5, topic_labels[5])
+    res_text = res_text.mask(cond4, topic_labels[4])
+
+    res_series = res_series.where(~mask_missing, res_text)
+
+  df[col_topik] = res_series.fillna(topic_labels[2])
   return df, col_v, col_s, col_sent, col_topik
 
 
 df_benchmark, col_vtuber, col_stream, col_sentimen, col_topik = (
-    process_benchmark_df(df_benchmark)
+    process_benchmark_data(df_benchmark)
 )
 
 COLOR_POS = "#10B981"
@@ -432,7 +461,7 @@ if mode_pilihan == "⚡ Ekstraksi Live Chat (Realtime)":
           if komentar_asli:
             clean_text = preprocess_text(komentar_asli)
             sentiment = prediksi_sentimen_ml(clean_text, komentar_asli)
-            topik_lda = deteksi_topik_cepat(clean_text)
+            topik_lda = deteksi_topik_realtime(clean_text)
 
             extracted_rows.append({
                 "Username": msg.get("user_display_name", "Anonymous"),
@@ -619,7 +648,7 @@ else:
           "🎮 Analisis Kategori Stream & Korelasi",
       ])
 
-      # TAB 1: ANALISIS DESKRIPTIF DATA MINING & COMPARED SIDE-BY-SIDE
+      # TAB 1: ANALISIS DESKRIPTIF DATA MINING & TAMPILAN SIDE-BY-SIDE
       with tab1:
         total_chat = len(df_filtered)
         pos_chat = (
