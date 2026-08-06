@@ -98,27 +98,27 @@ def deteksi_topik_realtime(teks_bersih):
     else:
         return "Topik 2: Respon & Obrolan"
 
-# 7. Styling CSS UI Modern
+# 7. Styling CSS UI Modern Padat
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
-    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
     .metric-card {
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        padding: 16px 20px;
+        padding: 14px 18px;
     }
-    .metric-title { font-size: 0.8rem; color: #A0AEC0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .metric-value { font-size: 1.8rem; font-weight: 700; color: #FFFFFF; }
-    .metric-sub { font-size: 0.8rem; color: #718096; }
+    .metric-title { font-size: 0.75rem; color: #A0AEC0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-value { font-size: 1.7rem; font-weight: 700; color: #FFFFFF; }
+    .metric-sub { font-size: 0.78rem; color: #718096; }
     .extractor-container {
         background: rgba(99, 102, 241, 0.05);
         border: 1px solid rgba(99, 102, 241, 0.2);
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 20px;
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 15px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -159,7 +159,7 @@ def style_fig(fig):
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Plus Jakarta Sans", color="#E2E8F0"),
-        margin=dict(l=20, r=20, t=30, b=20),
+        margin=dict(l=15, r=15, t=25, b=15),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
@@ -169,25 +169,27 @@ st.title("🎭 VTuber Live Chat Mining & Analytics System")
 
 mode_pilihan = st.radio(
     "📌 **Pilih Mode Aplikasi:**",
-    ["⚡ Modul Ekstraksi Live Chat (Realtime)", "📊 Dashboard Benchmark Dataset (20 VTuber)"],
+    ["⚡ Ekstraksi Live Chat (Realtime)", "📊 Dashboard Benchmark Dataset (20 VTuber)"],
     horizontal=True
 )
 
 st.markdown("---")
 
 # ==========================================================
-# MODE 1: MODUL EKSTRAKSI LIVE CHAT (REALTIME + ANALYTICS)
+# MODE 1: EKSTRAKSI LIVE CHAT (REALTIME + ANALYTICS)
 # ==========================================================
-if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
+if mode_pilihan == "⚡ Ekstraksi Live Chat (Realtime)":
     st.markdown("""
         <div class="extractor-container">
-            <h2>🧪 Modul Ekstraksi Live Chat Stream</h2>
-            <p style="color: #A0AEC0;">Masukkan link YouTube Live/Replay. Sentimen diprediksi menggunakan <b>Model Naïve Bayes (.pkl)</b> dan topik diklasifikasikan menggunakan <b>Pemodelan Topik LDA</b>.</p>
+            <h3 style="margin-top:0;">🧪 Fitur Penarikan Live Chat Stream Single-URL</h3>
+            <p style="color: #A0AEC0; font-size: 0.9rem; margin-bottom: 0;">
+                Masukkan 1 link YouTube Live/Replay untuk pengujian inferensi real-time. Sentimen diklasifikasikan menggunakan <b>Model Naïve Bayes (.pkl)</b> dan topik dipetakan berbasis <b>LDA Model</b>.
+            </p>
         </div>
     """, unsafe_allow_html=True)
 
     if model_nb is None:
-        st.warning("⚠️ File model_sentiment.pkl belum terdeteksi di repositori. Prediksi sentimen akan berjalan secara fallback.")
+        st.warning("⚠️ File model_sentiment.pkl belum terdeteksi di repositori. Prediksi sentimen berjalan dalam mode standar.")
 
     col_url, col_kat = st.columns([3, 1])
     with col_url:
@@ -211,7 +213,7 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
             if "?si=" in clean_url:
                 clean_url = clean_url.split("?si=")[0]
 
-            status_box = st.info("⏳ Sedang menarik live chat asli, memproses teks, memprediksi sentimen, dan mengekstrak topik...")
+            status_box = st.info("⏳ Sedang menarik live chat asli, memproses pembersihan teks, memprediksi sentimen, dan mengekstrak topik...")
             
             try:
                 downloader = YouTubeChatDownloader()
@@ -305,7 +307,7 @@ if mode_pilihan == "⚡ Modul Ekstraksi Live Chat (Realtime)":
 
         st.markdown("---")
         
-        # 4. TABEL UTUH HASIL EKSTRAKSI (TAMPIL LANGSUNG)
+        # 4. TABEL UTUH HASIL EKSTRAKSI
         st.markdown("### 📑 Tabel Keseluruhan Hasil Ekstraksi Live Chat")
         st.dataframe(df_real, use_container_width=True)
 
@@ -333,13 +335,11 @@ else:
         st.error("⚠️ File dataset benchmark (.xlsx) tidak ditemukan di repositori GitHub!")
         st.info("Pastikan file `data_vtuber_labeled.xlsx` atau `hasil_akhir_analisis_skripsi.xlsx` ada di repo.")
     else:
-        # Deteksi Kolom Otomatis
         col_vtuber = find_col(df_benchmark, ['vtuber', 'nama', 'channel'], 'VTuber Name')
         col_stream = find_col(df_benchmark, ['stream', 'kategori', 'type'], 'Stream Type')
         col_sentimen = find_col(df_benchmark, ['sentimen', 'sentiment', 'prediksi', 'label'], 'Prediksi Sentimen')
         col_topik_raw = find_col(df_benchmark, ['topik', 'klaster', 'lda'], 'Klaster Topik Dominan')
 
-        # Map Nomor Topik LDA ke Label Deskriptif
         TOPIC_MAP = {
             1: "Topik 1: Sapaan & Interaksi",
             2: "Topik 2: Respon & Obrolan",
@@ -359,7 +359,6 @@ else:
         else:
             df_benchmark[col_topik] = "General"
 
-        # FILTER PANEL SIDEBAR GLOBAL
         st.sidebar.markdown("### 🎛️ Filter Panel Global")
         all_vtubers = sorted(df_benchmark[col_vtuber].dropna().unique().tolist()) if col_vtuber in df_benchmark.columns else []
         selected_vtubers = st.sidebar.multiselect("Pilih VTuber", all_vtubers, default=all_vtubers)
@@ -367,7 +366,6 @@ else:
         all_streams = sorted(df_benchmark[col_stream].dropna().unique().tolist()) if col_stream in df_benchmark.columns else []
         selected_streams = st.sidebar.multiselect("Pilih Kategori Stream", all_streams, default=all_streams)
 
-        # Apply Filter
         df_filtered = df_benchmark.copy()
         if col_vtuber in df_benchmark.columns and selected_vtubers:
             df_filtered = df_filtered[df_filtered[col_vtuber].isin(selected_vtubers)]
@@ -377,11 +375,10 @@ else:
         if df_filtered.empty:
             st.warning("Data kosong untuk kombinasi filter ini.")
         else:
-            # NAVIGASI TAB (Tabel Raw Data sudah dihilangkan)
             tab1, tab2, tab3 = st.tabs([
                 "📊 Ringkasan & Referensi LDA",
                 "👤 Profil & Perbandingan VTuber",
-                "🎮 Analisis Kategori Stream"
+                "🎮 Analisis Kategori Stream & Korelasi"
             ])
 
             # TAB 1: RINGKASAN & LDA
@@ -487,18 +484,59 @@ else:
                     fig_vt_lda = px.histogram(df_filtered, x=col_vtuber, color=col_topik, barmode='stack', color_discrete_sequence=COLOR_THEME)
                     st.plotly_chart(style_fig(fig_vt_lda), use_container_width=True)
 
-            # TAB 3: KATEGORI STREAM
+            # TAB 3: ANALISIS KATEGORI STREAM & KORELASI (DIPERBANYAK & DIPERLENGKAP)
             with tab3:
-                st.markdown("### 🎮 Perbandingan Berdasarkan Kategori Stream")
+                st.markdown("### 🎮 Analisis Komparatif & Korelasi Kategori Stream")
+                st.caption("Membedah korelasi antara format tayangan stream dengan pola respon sentimen dan topik pembicaraan audience.")
+
                 if col_stream in df_filtered.columns:
+                    # 1. Row Grafik Utama Kategori
                     col_k1, col_k2 = st.columns(2)
                     with col_k1:
-                        st.markdown("##### Sentimen per Kategori Stream")
+                        st.markdown("##### 1. Distibusi Sentimen per Kategori Stream")
                         if col_sentimen in df_filtered.columns:
-                            fig_cat_sent = px.histogram(df_filtered, x=col_stream, color=col_sentimen, barmode='group', color_discrete_map={'Positif': COLOR_POS, 'Negatif': COLOR_NEG})
+                            fig_cat_sent = px.histogram(df_filtered, x=col_stream, color=col_sentimen, barmode='group',
+                                                        color_discrete_map={'Positif': COLOR_POS, 'Negatif': COLOR_NEG})
                             st.plotly_chart(style_fig(fig_cat_sent), use_container_width=True)
 
                     with col_k2:
-                        st.markdown("##### Topik LDA per Kategori Stream")
-                        fig_cat_top = px.histogram(df_filtered, x=col_stream, color=col_topik, barmode='stack', color_discrete_sequence=COLOR_THEME)
+                        st.markdown("##### 2. Distribusi Topik LDA per Kategori Stream")
+                        fig_cat_top = px.histogram(df_filtered, x=col_stream, color=col_topik, barmode='stack',
+                                                   color_discrete_sequence=COLOR_THEME)
                         st.plotly_chart(style_fig(fig_cat_top), use_container_width=True)
+
+                    st.markdown("---")
+
+                    # 2. Row Grafik Lanjutan Kategori
+                    col_k3, col_k4 = st.columns(2)
+                    with col_k3:
+                        st.markdown("##### 3. Persentase Sentimen Positif per Kategori (%)")
+                        cat_stats = df_filtered.groupby([col_stream, col_sentimen]).size().unstack(fill_value=0)
+                        if 'Positif' not in cat_stats.columns: cat_stats['Positif'] = 0
+                        if 'Negatif' not in cat_stats.columns: cat_stats['Negatif'] = 0
+                        cat_stats['Total'] = cat_stats['Positif'] + cat_stats['Negatif']
+                        cat_stats['Positif_Pct'] = (cat_stats['Positif'] / cat_stats['Total'] * 100).round(1)
+                        cat_stats = cat_stats.reset_index()
+
+                        fig_cat_pct = px.bar(cat_stats, x=col_stream, y='Positif_Pct', text_auto='.1f',
+                                             color='Positif_Pct', color_continuous_scale='Purples')
+                        st.plotly_chart(style_fig(fig_cat_pct), use_container_width=True)
+
+                    with col_k4:
+                        st.markdown("##### 4. Dominansi Topik Utama pada Tiap Kategori")
+                        top_cat_matrix = df_filtered.groupby([col_stream, col_topik]).size().reset_index(name='Jumlah Chat')
+                        fig_matrix = px.bar(top_cat_matrix, x=col_stream, y='Jumlah Chat', color=col_topik,
+                                            barmode='group', color_discrete_sequence=COLOR_THEME)
+                        st.plotly_chart(style_fig(fig_matrix), use_container_width=True)
+
+                    st.markdown("---")
+
+                    # 3. Ringkasan Matriks Korelasi Kategori Stream
+                    st.markdown("##### 📌 Tabel Ringkasan Korelasi Kategori Stream & Sentimen")
+                    cat_summary = df_filtered.groupby(col_stream).agg(
+                        Total_Chat=(col_sentimen, 'count'),
+                        Chat_Positif=(col_sentimen, lambda x: (x == 'Positif').sum()),
+                        Chat_Negatif=(col_sentimen, lambda x: (x == 'Negatif').sum())
+                    ).reset_index()
+                    cat_summary['Rasio Positif (%)'] = ((cat_summary['Chat_Positif'] / cat_summary['Total_Chat']) * 100).round(2)
+                    st.dataframe(cat_summary, use_container_width=True)
