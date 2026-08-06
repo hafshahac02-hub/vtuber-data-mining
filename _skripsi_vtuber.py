@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 2. Import Scraper & Sastrawi
+# 2. Import Scraper & Sastrawi Optional
 try:
   from yt_chat_downloader import YouTubeChatDownloader
 
@@ -34,7 +34,7 @@ except Exception:
   HAS_SASTRAWI = False
 
 
-# 3. Load Model Machine Learning (.pkl) Hasil Latihan Dataset 20 VTuber
+# 3. Load Model Machine Learning (.pkl)
 @st.cache_resource
 def load_ml_model():
   try:
@@ -48,7 +48,7 @@ def load_ml_model():
 model_nb, tfidf_vec = load_ml_model()
 
 
-# 4. Preprocessing Sastrawi
+# 4. Preprocessing Sastrawi (Khusus Teks Pendek Realtime)
 @st.cache_resource
 def load_sastrawi_tools():
   if HAS_SASTRAWI:
@@ -92,11 +92,12 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
   return "Positif"
 
 
-# 6. Pemetaan Topik Real-time Berdasarkan Kata Kunci LDA Benchmark
-def deteksi_topik_realtime(teks_bersih):
-  if not teks_bersih:
+# 6. Pemetaan Topik Berbasis Kata Kunci (Ringan & Cepat Tanpa Stemming Berat)
+def deteksi_topik_cepat(teks_input):
+  if not teks_input or pd.isna(teks_input):
     return "Topik 2: Respon & Obrolan"
-  t = teks_bersih.lower()
+
+  t = str(teks_input).lower()
 
   if any(
       w in t
@@ -151,7 +152,7 @@ def deteksi_topik_realtime(teks_bersih):
     return "Topik 2: Respon & Obrolan"
 
 
-# 7. Styling CSS UI Modern Padat
+# 7. Styling CSS UI Modern
 st.markdown(
     """
     <style>
@@ -178,7 +179,7 @@ st.markdown(
         background: rgba(255, 255, 255, 0.02);
         border-left: 4px solid #6366F1;
         padding: 15px 20px;
-        border-radius: 4px;
+        border-radius: 6px;
         margin-bottom: 20px;
     }
     </style>
@@ -201,7 +202,8 @@ def load_benchmark_data():
   else:
     target_file = files[0]
 
-  return pd.read_excel(target_file)
+  df = pd.read_excel(target_file)
+  return df.copy()
 
 
 df_benchmark = load_benchmark_data()
@@ -217,29 +219,26 @@ def find_col(df, possible_names):
   return None
 
 
-TOPIC_MAP = {
+TOPIC_MAP_NUM = {
     1: "Topik 1: Sapaan & Interaksi",
     2: "Topik 2: Respon & Obrolan",
     3: "Topik 3: Ucapan Datang / Live",
     4: "Topik 4: Apresiasi Stream (Otsu)",
     5: "Topik 5: Ekspresi Suka / Tertawa",
-    "1": "Topik 1: Sapaan & Interaksi",
-    "2": "Topik 2: Respon & Obrolan",
-    "3": "Topik 3: Ucapan Datang / Live",
-    "4": "Topik 4: Apresiasi Stream (Otsu)",
-    "5": "Topik 5: Ekspresi Suka / Tertawa",
-    1.0: "Topik 1: Sapaan & Interaksi",
-    2.0: "Topik 2: Respon & Obrolan",
-    3.0: "Topik 3: Ucapan Datang / Live",
-    4.0: "Topik 4: Apresiasi Stream (Otsu)",
-    5.0: "Topik 5: Ekspresi Suka / Tertawa",
 }
 
 
-# FUNGSI PEMPROSESAN LDA BENCHMARK (DENGAN PENANGANAN OTOMATIS)
-def process_benchmark_lda(df):
-  if df.empty:
-    return df, "VTuber Name", "Stream Type", "Prediksi Sentimen", "Nama Topik LDA"
+def process_benchmark_df(df_input):
+  if df_input.empty:
+    return (
+        df_input,
+        "VTuber Name",
+        "Stream Type",
+        "Prediksi Sentimen",
+        "Nama Topik LDA",
+    )
+
+  df = df_input.copy()
 
   col_v = (
       find_col(df, ["vtuber", "nama", "channel", "creator"]) or df.columns[0]
@@ -281,30 +280,31 @@ def process_benchmark_lda(df):
 
   col_topik = "Nama Topik LDA"
 
-  if col_topik_raw and col_topik_raw in df.columns:
-    mapped = df[col_topik_raw].map(TOPIC_MAP)
-    if mapped.notna().sum() > 0:
-      df[col_topik] = mapped.fillna(df[col_topik_raw].astype(str))
-    else:
-      df[col_topik] = df[col_topik_raw].astype(str)
+  def convert_row_topic(row):
+    val = row[col_topik_raw] if col_topik_raw and col_topik_raw in row else None
+    chat_str = row[col_text_raw] if col_text_raw and col_text_raw in row else ""
 
-    mask_invalid = df[col_topik].str.lower().isin(["general", "nan", "", "none"])
-    if mask_invalid.any() and col_text_raw and col_text_raw in df.columns:
-      df.loc[mask_invalid, col_topik] = df.loc[mask_invalid, col_text_raw].apply(
-          lambda x: deteksi_topik_realtime(preprocess_text(str(x)))
-      )
-  elif col_text_raw and col_text_raw in df.columns:
-    df[col_topik] = df[col_text_raw].apply(
-        lambda x: deteksi_topik_realtime(preprocess_text(str(x)))
-    )
-  else:
-    df[col_topik] = "Topik 2: Respon & Obrolan"
+    if pd.notna(val):
+      s_val = str(val).strip()
+      for t_name in TOPIC_MAP_NUM.values():
+        if t_name.lower() in s_val.lower():
+          return t_name
 
+      try:
+        num = int(float(s_val))
+        if num in TOPIC_MAP_NUM:
+          return TOPIC_MAP_NUM[num]
+      except Exception:
+        pass
+
+    return deteksi_topik_cepat(chat_str)
+
+  df[col_topik] = df.apply(convert_row_topic, axis=1)
   return df, col_v, col_s, col_sent, col_topik
 
 
 df_benchmark, col_vtuber, col_stream, col_sentimen, col_topik = (
-    process_benchmark_lda(df_benchmark)
+    process_benchmark_df(df_benchmark)
 )
 
 COLOR_POS = "#10B981"
@@ -432,7 +432,7 @@ if mode_pilihan == "⚡ Ekstraksi Live Chat (Realtime)":
           if komentar_asli:
             clean_text = preprocess_text(komentar_asli)
             sentiment = prediksi_sentimen_ml(clean_text, komentar_asli)
-            topik_lda = deteksi_topik_realtime(clean_text)
+            topik_lda = deteksi_topik_cepat(clean_text)
 
             extracted_rows.append({
                 "Username": msg.get("user_display_name", "Anonymous"),
@@ -552,8 +552,6 @@ if mode_pilihan == "⚡ Ekstraksi Live Chat (Realtime)":
         )
         fig_words.update_layout(yaxis=dict(autorange="reversed"))
         st.plotly_chart(style_fig(fig_words), use_container_width=True)
-      else:
-        st.info("Belum ada kata bersih yang cukup untuk dihitung.")
 
     st.markdown("---")
 
@@ -621,7 +619,7 @@ else:
           "🎮 Analisis Kategori Stream & Korelasi",
       ])
 
-      # TAB 1: ANALISIS DESKRIPTIF DATA MINING & TAMPILAN BERSISI-SISIAN
+      # TAB 1: ANALISIS DESKRIPTIF DATA MINING & COMPARED SIDE-BY-SIDE
       with tab1:
         total_chat = len(df_filtered)
         pos_chat = (
@@ -753,7 +751,7 @@ else:
             st.markdown(
                 f"##### Proporsi Sentimen Chat ({selected_single_vt})"
             )
-            if col_sentimen in df_single.columns:
+            if col_sentimen in df_single.columns and not df_single.empty:
               fig_s_single = px.pie(
                   df_single,
                   names=col_sentimen,
@@ -769,18 +767,21 @@ else:
             st.markdown(
                 f"##### Proporsi Topik LDA Dominan ({selected_single_vt})"
             )
-            fig_t_single = px.pie(
-                df_single,
-                names=col_topik,
-                hole=0.55,
-                color_discrete_sequence=COLOR_THEME,
-            )
-            st.plotly_chart(style_fig(fig_t_single), use_container_width=True)
+            if not df_single.empty:
+              fig_t_single = px.pie(
+                  df_single,
+                  names=col_topik,
+                  hole=0.55,
+                  color_discrete_sequence=COLOR_THEME,
+              )
+              st.plotly_chart(
+                  style_fig(fig_t_single), use_container_width=True
+              )
 
             st.markdown(
                 f"##### Sebaran Kategori Stream ({selected_single_vt})"
             )
-            if col_stream in df_single.columns:
+            if col_stream in df_single.columns and not df_single.empty:
               fig_cat_single = px.pie(
                   df_single,
                   names=col_stream,
