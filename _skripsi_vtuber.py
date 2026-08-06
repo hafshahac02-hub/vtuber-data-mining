@@ -98,7 +98,7 @@ def deteksi_topik_realtime(teks_bersih):
     else:
         return "Topik 2: Respon & Obrolan"
 
-# 7. Styling CSS UI Modern Padat
+# 7. Styling CSS UI Modern
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
@@ -141,14 +141,46 @@ def load_benchmark_data():
 
 df_benchmark = load_benchmark_data()
 
-def find_col(df, possible_names):
+# LOGIKA DETEKSI KOLOM DAN PEMETAAN TOPIK PERSIS DARI KODE LAMA DENGAN TAMBAHAN TIPE DATA FLOAT/STRING
+def find_col(df, possible_names, default):
     if df.empty:
-        return None
+        return default
     for name in possible_names:
         for col in df.columns:
             if name.lower() in str(col).lower():
                 return col
-    return None
+    return default
+
+col_vtuber = find_col(df_benchmark, ['vtuber', 'nama'], 'VTuber Name')
+col_stream = find_col(df_benchmark, ['stream', 'kategori', 'type'], 'Stream Type')
+col_sentimen = find_col(df_benchmark, ['sentimen', 'sentiment', 'prediksi'], 'Prediksi Sentimen')
+col_topik_raw = find_col(df_benchmark, ['topik', 'klaster', 'lda'], 'Klaster Topik Dominan')
+
+# Map Nomor Topik LDA ke Label Deskriptif (Identik dengan Kode Lama)
+TOPIC_MAP = {
+    1: "Topik 1: Sapaan & Interaksi",
+    2: "Topik 2: Respon & Obrolan",
+    3: "Topik 3: Ucapan Datang / Live",
+    4: "Topik 4: Apresiasi Stream (Otsu)",
+    5: "Topik 5: Ekspresi Suka / Tertawa",
+    "1": "Topik 1: Sapaan & Interaksi",
+    "2": "Topik 2: Respon & Obrolan",
+    "3": "Topik 3: Ucapan Datang / Live",
+    "4": "Topik 4: Apresiasi Stream (Otsu)",
+    "5": "Topik 5: Ekspresi Suka / Tertawa",
+    1.0: "Topik 1: Sapaan & Interaksi",
+    2.0: "Topik 2: Respon & Obrolan",
+    3.0: "Topik 3: Ucapan Datang / Live",
+    4.0: "Topik 4: Apresiasi Stream (Otsu)",
+    5.0: "Topik 5: Ekspresi Suka / Tertawa"
+}
+
+col_topik = 'Nama Topik LDA'
+if not df_benchmark.empty and col_topik_raw in df_benchmark.columns:
+    df_benchmark[col_topik] = df_benchmark[col_topik_raw].map(TOPIC_MAP).fillna(df_benchmark[col_topik_raw].astype(str))
+else:
+    if not df_benchmark.empty:
+        df_benchmark[col_topik] = "General"
 
 COLOR_POS = "#10B981"
 COLOR_NEG = "#EF4444"
@@ -163,51 +195,6 @@ def style_fig(fig):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
-
-# FUNGSI PERBAIKAN KONVERSI TOPIK LDA (KONSISTEN & PRESISI)
-def convert_lda_topic(series):
-    topic_labels = {
-        1: "Topik 1: Sapaan & Interaksi",
-        2: "Topik 2: Respon & Obrolan",
-        3: "Topik 3: Ucapan Datang / Live",
-        4: "Topik 4: Apresiasi Stream (Otsu)",
-        5: "Topik 5: Ekspresi Suka / Tertawa"
-    }
-    
-    s_clean = series.dropna().astype(str).str.strip()
-    
-    extracted_nums = []
-    for val in s_clean:
-        nums = re.findall(r'\d+', val)
-        if nums:
-            extracted_nums.append(int(nums[0]))
-            
-    is_zero_indexed = (min(extracted_nums) == 0) if extracted_nums else False
-
-    def parse_single_val(val):
-        if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "nan":
-            return "Topik 2: Respon & Obrolan"
-        
-        s_val = str(val).strip()
-        
-        for k, v in topic_labels.items():
-            if v.lower() in s_val.lower():
-                return v
-        
-        nums = re.findall(r'\d+', s_val)
-        if nums:
-            n = int(nums[0])
-            if is_zero_indexed:
-                n = n + 1
-            if n in topic_labels:
-                return topic_labels[n]
-            elif n > 5:
-                n = ((n - 1) % 5) + 1
-                return topic_labels[n]
-                
-        return "Topik 2: Respon & Obrolan"
-
-    return series.apply(parse_single_val)
 
 # HEADER UTAMA
 st.title("🎭 VTuber Live Chat Mining & Analytics System")
@@ -375,17 +362,6 @@ else:
         st.error("⚠️ File dataset benchmark (.xlsx) tidak ditemukan di repositori GitHub!")
         st.info("Pastikan file `data_vtuber_labeled.xlsx` atau `hasil_akhir_analisis_skripsi.xlsx` ada di repo.")
     else:
-        col_vtuber = find_col(df_benchmark, ['vtuber', 'nama', 'channel']) or 'VTuber Name'
-        col_stream = find_col(df_benchmark, ['stream', 'kategori', 'type']) or 'Stream Type'
-        col_sentimen = find_col(df_benchmark, ['sentimen', 'sentiment', 'prediksi', 'label']) or 'Prediksi Sentimen'
-        col_topik_raw = find_col(df_benchmark, ['topik', 'topic', 'klaster', 'cluster', 'lda'])
-
-        col_topik = 'Nama Topik LDA'
-        if col_topik_raw and col_topik_raw in df_benchmark.columns:
-            df_benchmark[col_topik] = convert_lda_topic(df_benchmark[col_topik_raw])
-        else:
-            df_benchmark[col_topik] = "Topik 2: Respon & Obrolan"
-
         st.sidebar.markdown("### 🎛️ Filter Panel Global")
         all_vtubers = sorted(df_benchmark[col_vtuber].dropna().unique().tolist()) if col_vtuber in df_benchmark.columns else []
         selected_vtubers = st.sidebar.multiselect("Pilih VTuber", all_vtubers, default=all_vtubers)
