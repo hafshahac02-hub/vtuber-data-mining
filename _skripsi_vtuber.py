@@ -164,10 +164,8 @@ def style_fig(fig):
     )
     return fig
 
-# FUNGSI PERBAIKAN KONVERSI TOPIK LDA
+# FUNGSI PERBAIKAN KONVERSI TOPIK LDA (KONSISTEN & PRESISI)
 def convert_lda_topic(series):
-    numeric_series = pd.to_numeric(series, errors='coerce')
-    
     topic_labels = {
         1: "Topik 1: Sapaan & Interaksi",
         2: "Topik 2: Respon & Obrolan",
@@ -176,17 +174,40 @@ def convert_lda_topic(series):
         5: "Topik 5: Ekspresi Suka / Tertawa"
     }
     
-    if numeric_series.notna().any():
-        min_val = numeric_series.dropna().min()
-        # Jika berbasis 0 (0-indexed), tambahkan 1 agar menjadi 1-5
-        if min_val == 0:
-            numeric_series = numeric_series + 1
+    s_clean = series.dropna().astype(str).str.strip()
+    
+    extracted_nums = []
+    for val in s_clean:
+        nums = re.findall(r'\d+', val)
+        if nums:
+            extracted_nums.append(int(nums[0]))
+            
+    is_zero_indexed = (min(extracted_nums) == 0) if extracted_nums else False
+
+    def parse_single_val(val):
+        if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "nan":
+            return "Topik 2: Respon & Obrolan"
         
-        mapped = numeric_series.map(topic_labels)
-        return mapped.fillna("Topik 2: Respon & Obrolan")
-    else:
-        # Jika berupa string teks
-        return series.astype(str).replace({'nan': 'Topik 2: Respon & Obrolan', '': 'Topik 2: Respon & Obrolan'})
+        s_val = str(val).strip()
+        
+        for k, v in topic_labels.items():
+            if v.lower() in s_val.lower():
+                return v
+        
+        nums = re.findall(r'\d+', s_val)
+        if nums:
+            n = int(nums[0])
+            if is_zero_indexed:
+                n = n + 1
+            if n in topic_labels:
+                return topic_labels[n]
+            elif n > 5:
+                n = ((n - 1) % 5) + 1
+                return topic_labels[n]
+                
+        return "Topik 2: Respon & Obrolan"
+
+    return series.apply(parse_single_val)
 
 # HEADER UTAMA
 st.title("🎭 VTuber Live Chat Mining & Analytics System")
@@ -354,7 +375,6 @@ else:
         st.error("⚠️ File dataset benchmark (.xlsx) tidak ditemukan di repositori GitHub!")
         st.info("Pastikan file `data_vtuber_labeled.xlsx` atau `hasil_akhir_analisis_skripsi.xlsx` ada di repo.")
     else:
-        # Deteksi Kolom Otomatis
         col_vtuber = find_col(df_benchmark, ['vtuber', 'nama', 'channel']) or 'VTuber Name'
         col_stream = find_col(df_benchmark, ['stream', 'kategori', 'type']) or 'Stream Type'
         col_sentimen = find_col(df_benchmark, ['sentimen', 'sentiment', 'prediksi', 'label']) or 'Prediksi Sentimen'
