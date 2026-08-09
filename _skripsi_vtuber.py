@@ -710,6 +710,198 @@ else:
 
       # TAB 2: PROFIL & PERBANDINGAN VTUBER
       with tab2:
+        st.markdown("### Profil dan Informasi Dataset 20 VTuber")
+        st.caption(
+            "Menampilkan rincian demografi sampel riset dan perbandingan"
+            " metrik performa antar kanal independen."
+        )
+
+        # Layout 2 Kolom di Bagian Atas: Kiri untuk Profil & Keterangan, Kanan untuk Tabel 20 VTuber
+        col_prof_left, col_prof_right = st.columns([1, 1.4])
+
+        with col_prof_left:
+          st.markdown("#### Ringkasan Karakteristik Sampel")
+          st.markdown("""
+              Dataset ini terdiri dari **20 VTuber independen** yang aktif di ranah digital Indonesia. 
+              
+              * **Rentang Pengambilan Data:** Februari 2026 hingga Juli 2026.
+              * **Periode Pengerjaan Riset:** Mei hingga Juni 2026.
+              * **Fokus Analisis:** Mengukur interaksi penonton, performa live stream, dominasi topik, serta sentimen obrolan real-time berbasis model pembelajaran mesin.
+              """)
+          st.info(
+              "Data ini digunakan sebagai basis benchmark untuk mengevaluasi"
+              " pola interaksi audience pada kanal VTuber independen."
+          )
+
+        with col_prof_right:
+          st.markdown("#### Tabel Master 20 VTuber Independen")
+          # Membuat DataFrame untuk 20 VTuber sesuai tabel yang diberikan
+          data_20_vtuber = [
+              {
+                  "No": 1,
+                  "Nama Saluran": "Jelly si Curut Bodas Ch.",
+                  "Username": "@JellyCB14",
+                  "Jumlah Pengikut": 24600,
+                  "Total Live": 73,
+                  "Kategori Konten": "Gaming/ Collaboration",
+              },
+              {
+                  "No": 2,
+                  "Nama Saluran": "Vixynaa Mina ch.",
+                  "Username": "@vixynaa",
+                  "Jumlah Pengikut": 8070,
+                  "Total Live": 29,
+                  "Kategori Konten": "Gaming",
+              },
+              {
+                  "No": 3,
+                  "Nama Saluran": "Chiachasm / チアキャズム",
+                  "Username": "@chiachasm",
+                  "Jumlah Pengikut": 8090,
+                  "Total Live": 70,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 4,
+                  "Nama Saluran": "Avnore Daryush",
+                  "Username": "@avnoredaryush",
+                  "Jumlah Pengikut": 8740,
+                  "Total Live": 91,
+                  "Kategori Konten": "Gaming",
+              },
+              {
+                  "No": 5,
+                  "Nama Saluran": "Cheihime Ch.",
+                  "Username": "@cheihimechei",
+                  "Jumlah Pengikut": 1270,
+                  "Total Live": 38,
+                  "Kategori Konten": "Freetalk, Gaming",
+              },
+              {
+                  "No": 6,
+                  "Nama Saluran": "Aymana Manisha",
+                  "Username": "@AymanaManisha",
+                  "Jumlah Pengikut": 6970,
+                  "Total Live": 68,
+                  "Kategori Konten": "Freetalk, Gaming",
+              },
+              {
+                  "No": 7,
+                  "Nama Saluran": "Sachunya Milující Ch.【Atelier ID】",
+                  "Username": "@Sachunya.Milujici",
+                  "Jumlah Pengikut": 1460,
+                  "Total Live": 109,
+                  "Kategori Konten": "Gaming, Karaoke, Collaboration",
+              },
+              {
+                  "No": 8,
+                  "Nama Saluran": "Cecillia Hanarisu Ch.",
+                  "Username": "@CecilliaHanarisu",
+                  "Jumlah Pengikut": 6990,
+                  "Total Live": 54,
+                  "Kategori Konten": "Freetalk, Gaming",
+              },
+              {
+                  "No": 9,
+                  "Nama Saluran": "Shieru Eris Ch.",
+                  "Username": "@ShieruEris",
+                  "Jumlah Pengikut": 3030,
+                  "Total Live": 76,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 10,
+                  "Nama Saluran": "Riverio Akira Ch.",
+                  "Username": "@RiverioAkiraCh",
+                  "Jumlah Pengikut": 15800,
+                  "Total Live": 58,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 11,
+                  "Nama Saluran": "Lavatia Laflarld",
+                  "Username": "@lavatialaflarldofficial",
+                  "Jumlah Pengikut": 20000,
+                  "Total Live": 72,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 12,
+                  "Nama Saluran": "Takaki Naoki Youtube Channel",
+                  "Username": "@takakinaoki",
+                  "Jumlah Pengikut": 3370,
+                  "Total Live": 26,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 13,
+                  "Nama Saluran": "Bianca Hantu",
+                  "Username": "@BiancaHantu",
+                  "Jumlah Pengikut": 7590,
+                  "Total Live": 35,
+                  "Kategori Konten": "Gaming, Karaoke, Collaboration",
+              },
+              {
+                  "No": 14,
+                  "Nama Saluran": "Nova Constella",
+                  "Username": "@NovaConstella",
+                  "Jumlah Pengikut": 4700,
+                  "Total Live": 105,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 15,
+                  "Nama Saluran": "aisu kohi【NeoRise】",
+                  "Username": "@Aisukohi_1",
+                  "Jumlah Pengikut": 6580,
+                  "Total Live": 79,
+                  "Kategori Konten": "Collaboration",
+              },
+              {
+                  "No": 16,
+                  "Nama Saluran": "Dezzoko Yoezaro",
+                  "Username": "@dezzokoyoezaro",
+                  "Jumlah Pengikut": 4920,
+                  "Total Live": 136,
+                  "Kategori Konten": "Freetalk, Gaming",
+              },
+              {
+                  "No": 17,
+                  "Nama Saluran": "Teaqillla Ch. 【MIQELA】",
+                  "Username": "@TeaqilllaVT",
+                  "Jumlah Pengikut": 3340,
+                  "Total Live": 100,
+                  "Kategori Konten": "Freetalk, Gaming, Collaboration",
+              },
+              {
+                  "No": 18,
+                  "Nama Saluran": "Merra Merona",
+                  "Username": "@MerraMeronaVTuberID",
+                  "Jumlah Pengikut": 5250,
+                  "Total Live": 79,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+              {
+                  "No": 19,
+                  "Nama Saluran": "Silveryshore Ch.【CozyCazt】",
+                  "Username": "@silveryshore",
+                  "Jumlah Pengikut": 9450,
+                  "Total Live": 52,
+                  "Kategori Konten": "Collaboration",
+              },
+              {
+                  "No": 20,
+                  "Nama Saluran": "Tris Fushimi Ch.",
+                  "Username": "@trisfushimi",
+                  "Jumlah Pengikut": 4040,
+                  "Total Live": 55,
+                  "Kategori Konten": "Gaming, Collaboration",
+              },
+          ]
+          df_table_20 = pd.DataFrame(data_20_vtuber)
+          st.dataframe(df_table_20, use_container_width=True, height=350)
+
+        st.markdown("---")
         st.markdown("### Filter Individual 1 VTuber")
         selected_single_vt = (
             st.selectbox(
