@@ -334,16 +334,17 @@ def style_fig(fig):
 # HEADER UTAMA
 st.title("VTuber Live Chat Mining & Analytics System")
 
-mode_pilihan = st.radio(
+# PILIHAN MODE DIPINDAH KE SIDEBAR
+st.sidebar.markdown("### Navigasi Mode Aplikasi")
+mode_pilihan = st.sidebar.radio(
     "Pilih Mode Aplikasi:",
     [
         "Ekstraksi Live Chat (Realtime)",
         "Dashboard Benchmark Dataset (20 VTuber)",
     ],
-    horizontal=True,
 )
 
-st.markdown("---")
+st.sidebar.markdown("---")
 
 # ==========================================================
 # MODE 1: EKSTRAKSI LIVE CHAT (REALTIME + ANALYTICS)
@@ -598,14 +599,13 @@ else:
         "Pilih VTuber", all_vtubers, default=all_vtubers
     )
 
+    # Kategori stream di sidebar dihapus dan di-default-kan ke semua stream
     all_streams = (
         sorted(df_benchmark[col_stream].dropna().unique().tolist())
         if col_stream in df_benchmark.columns
         else []
     )
-    selected_streams = st.sidebar.multiselect(
-        "Pilih Kategori Stream", all_streams, default=all_streams
-    )
+    selected_streams = all_streams
 
     df_filtered = df_benchmark.copy()
     if col_vtuber in df_benchmark.columns and selected_vtubers:
@@ -735,7 +735,6 @@ else:
 
         with col_prof_right:
           st.markdown("#### Tabel Master 20 VTuber Independen")
-          # Membuat DataFrame untuk 20 VTuber sesuai tabel yang diberikan
           data_20_vtuber = [
               {
                   "No": 1,
