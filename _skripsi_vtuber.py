@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import tempfile
 from collections import Counter
 
 import joblib
@@ -8,6 +9,20 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+try:
+  from fpdf import FPDF
+
+  HAS_FPDF = True
+except Exception:
+  HAS_FPDF = False
+
+try:
+  import kaleido  # noqa: F401 -- required by plotly's fig.to_image()
+
+  HAS_KALEIDO = True
+except Exception:
+  HAS_KALEIDO = False
 
 # 1. Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -558,6 +573,9 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     st.markdown("---")
     st.subheader("Hasil Analisis Data Realtime")
 
+    # Dikumpulkan supaya bisa dibundel jadi satu laporan PDF di bagian bawah.
+    charts_for_pdf = {}
+
     m1, m2, m3, m4 = st.columns(4)
     metric_card(m1, "Total Live Chat Ter-ekstrak", f"{total_real:,}")
     metric_card(
@@ -585,6 +603,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           hole=0.55,
       )
       st.plotly_chart(style_fig(fig_sent), use_container_width=True)
+      charts_for_pdf["Proporsi Sentimen (Naive Bayes)"] = fig_sent
 
     with c_g2:
       st.markdown("##### Proporsi Topik LDA Dominan")
@@ -595,6 +614,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           color_discrete_sequence=COLOR_THEME,
       )
       st.plotly_chart(style_fig(fig_topik), use_container_width=True)
+      charts_for_pdf["Proporsi Topik LDA Dominan"] = fig_topik
 
     c_g3, c_g4 = st.columns(2)
     with c_g3:
@@ -607,6 +627,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
       )
       st.plotly_chart(style_fig(fig_top_sent), use_container_width=True)
+      charts_for_pdf["Sebaran Sentimen per Topik LDA"] = fig_top_sent
 
     with c_g4:
       st.markdown("##### 10 Kata Kunci Terbanyak dalam Stream")
@@ -625,6 +646,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         )
         fig_words.update_layout(yaxis=dict(autorange="reversed"))
         st.plotly_chart(style_fig(fig_words), use_container_width=True)
+        charts_for_pdf["10 Kata Kunci Terbanyak"] = fig_words
       else:
         st.info("Belum ada kata bersih yang cukup untuk dihitung.")
 
@@ -648,6 +670,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       )
       fig_users.update_layout(yaxis=dict(autorange="reversed"))
       st.plotly_chart(style_fig(fig_users), use_container_width=True)
+      charts_for_pdf["10 Penonton Paling Aktif"] = fig_users
 
     with c_g6:
       st.markdown("##### Distribusi Panjang Pesan per Sentimen")
@@ -663,6 +686,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
       )
       st.plotly_chart(style_fig(fig_len), use_container_width=True)
+      charts_for_pdf["Distribusi Panjang Pesan per Sentimen"] = fig_len
 
     if has_valid_time:
       df_time = df_time.dropna(subset=["Timestamp_parsed"]).sort_values(
@@ -683,6 +707,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
             color_discrete_sequence=["#6366F1"],
         )
         st.plotly_chart(style_fig(fig_vol), use_container_width=True)
+        charts_for_pdf["Volume Chat Sepanjang Stream"] = fig_vol
 
       with c_g8:
         st.markdown("##### Tren Sentimen Sepanjang Stream")
@@ -699,6 +724,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
             color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
         )
         st.plotly_chart(style_fig(fig_trend), use_container_width=True)
+        charts_for_pdf["Tren Sentimen Sepanjang Stream"] = fig_trend
     else:
       st.caption(
           "Grafik tren berbasis waktu belum bisa ditampilkan karena format"
@@ -716,14 +742,83 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         df_to_download.to_excel(writer, index=False)
       return buffer.getvalue()
 
-    excel_bytes = convert_df_to_excel(df_real)
-    st.download_button(
-        label="Unduh Data Live Chat Ter-ekstrak (.xlsx)",
-        data=excel_bytes,
-        file_name="hasil_ekstraksi_livechat_realtime.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
-    )
+    def convert_charts_to_pdf(fig_dict, judul, ringkasan_baris):
+      pdf = FPDF(orientation="P", unit="mm", format="A4")
+      pdf.set_auto_page_break(auto=True, margin=15)
+
+      pdf.add_page()
+      pdf.set_font("Helvetica", "B", 16)
+      pdf.multi_cell(0, 10, judul, align="C")
+      pdf.ln(2)
+      pdf.set_font("Helvetica", "", 11)
+      for baris in ringkasan_baris:
+        pdf.cell(0, 8, baris, ln=True)
+
+      for nama_chart, fig in fig_dict.items():
+        img_bytes = fig.to_image(format="png", width=1000, height=620, scale=2)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+          tmp.write(img_bytes)
+          tmp_path = tmp.name
+        try:
+          pdf.add_page()
+          pdf.set_font("Helvetica", "B", 13)
+          pdf.multi_cell(0, 10, nama_chart)
+          pdf.image(tmp_path, x=10, y=30, w=190)
+        finally:
+          os.remove(tmp_path)
+
+      raw = pdf.output()
+      return bytes(raw) if not isinstance(raw, (bytes, bytearray)) else bytes(raw)
+
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+      excel_bytes = convert_df_to_excel(df_real)
+      st.download_button(
+          label="Unduh Data Live Chat Ter-ekstrak (.xlsx)",
+          data=excel_bytes,
+          file_name="hasil_ekstraksi_livechat_realtime.xlsx",
+          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          type="primary",
+          use_container_width=True,
+      )
+
+    with col_dl2:
+      if not HAS_FPDF or not HAS_KALEIDO:
+        st.button(
+            "Unduh Seluruh Grafik (.pdf)",
+            disabled=True,
+            use_container_width=True,
+            help=(
+                "Pustaka fpdf2 dan/atau kaleido belum terpasang di server."
+                " Tambahkan keduanya ke requirements.txt untuk mengaktifkan"
+                " fitur ini."
+            ),
+        )
+      else:
+        if st.button(
+            "Siapkan & Unduh Seluruh Grafik (.pdf)",
+            use_container_width=True,
+        ):
+          with st.spinner("Menyusun laporan PDF dari seluruh grafik..."):
+            ringkasan = [
+                f"Total live chat ter-ekstrak: {total_real:,}",
+                f"Sentimen positif: {pos_real:,} ({pos_pct:.1f}%)  |"
+                f"  Sentimen negatif: {neg_real:,} ({neg_pct:.1f}%)",
+                f"Penonton unik mengobrol: {unique_users:,}",
+            ]
+            pdf_bytes = convert_charts_to_pdf(
+                charts_for_pdf,
+                "Laporan Grafik Analisis Live Chat Realtime",
+                ringkasan,
+            )
+          st.download_button(
+              label="Unduh Laporan Grafik (.pdf)",
+              data=pdf_bytes,
+              file_name="laporan_grafik_livechat_realtime.pdf",
+              mime="application/pdf",
+              type="primary",
+              use_container_width=True,
+          )
 
 # ==========================================================
 # MODE 2: DASHBOARD BENCHMARK DATASET (20 VTUBER)
