@@ -10,3 +10,5 @@ gensim
 yt-chat-downloader
 kaleido==0.2.1
 fpdf2
+Pillow
+ 
