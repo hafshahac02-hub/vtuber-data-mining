@@ -2,9 +2,11 @@ import io
 import os
 import re
 from collections import Counter
+
 import joblib
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # 1. Konfigurasi Halaman Streamlit
@@ -78,7 +80,7 @@ def preprocess_text(text):
   return text.strip()
 
 
-# 5. Prediksi Sentimen Naïve Bayes (.pkl)
+# 5. Prediksi Sentimen Naive Bayes (.pkl)
 def prediksi_sentimen_ml(teks_bersih, teks_asli):
   input_text = teks_bersih if teks_bersih else str(teks_asli).lower()
   if model_nb and tfidf_vec:
@@ -91,10 +93,31 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
   return "Positif"
 
 
-# 6. Pemetaan Topik Real-time Berdasarkan Kata Kunci LDA Benchmark
+# ==========================================================
+# 6. LABEL TOPIK — satu sumber kebenaran dipakai di seluruh app
+# (isi & urutan keyword TIDAK diubah, hanya penamaan/tampilannya
+# dirapikan supaya tidak terasa acak/aneh)
+# ==========================================================
+TOPIC_LABELS = {
+    1: "Topik 1 · Sapaan & Interaksi",
+    2: "Topik 2 · Obrolan Umum",
+    3: "Topik 3 · Ucapan Pembuka Live",
+    4: "Topik 4 · Apresiasi ke Streamer",
+    5: "Topik 5 · Ekspresi Tawa & Suka",
+}
+
+TOPIC_KEYWORD_HINTS = {
+    1: "bang, banget, sil, tris, kalian, malam",
+    2: "aku, di, itu, ga, yang, ada",
+    3: "the, live, selamat, datang, di, semoga",
+    4: "kak, halo, jangan, otsu, stream, ka",
+    5: "lagi, dan, wkwkwk, suka, lah, dengan",
+}
+
+
 def deteksi_topik_realtime(teks_bersih):
   if not teks_bersih:
-    return "Topik 2: Respon & Obrolan"
+    return TOPIC_LABELS[2]
   t = str(teks_bersih).lower()
 
   if any(
@@ -110,7 +133,7 @@ def deteksi_topik_realtime(teks_bersih):
           "kak",
       ]
   ):
-    return "Topik 4: Apresiasi Stream (Otsu)"
+    return TOPIC_LABELS[4]
   elif any(
       w in t
       for w in [
@@ -125,12 +148,12 @@ def deteksi_topik_realtime(teks_bersih):
           "lagi",
       ]
   ):
-    return "Topik 5: Ekspresi Suka / Tertawa"
+    return TOPIC_LABELS[5]
   elif any(
       w in t
       for w in ["selamat", "datang", "welcome", "live", "semoga", "the"]
   ):
-    return "Topik 3: Ucapan Datang / Live"
+    return TOPIC_LABELS[3]
   elif any(
       w in t
       for w in [
@@ -145,38 +168,87 @@ def deteksi_topik_realtime(teks_bersih):
           "tris",
       ]
   ):
-    return "Topik 1: Sapaan & Interaksi"
+    return TOPIC_LABELS[1]
   else:
-    return "Topik 2: Respon & Obrolan"
+    return TOPIC_LABELS[2]
 
 
 # 7. Styling CSS UI Modern
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
     html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
-    .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
+    .block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1300px; }
+
+    h1, h2, h3, h4, h5 { font-weight: 700 !important; letter-spacing: -0.01em; }
+    h1 { font-size: 1.9rem !important; }
+
+    /* Metric cards */
     .metric-card {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 14px 18px;
-    }
-    .metric-title { font-size: 0.75rem; color: #A0AEC0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .metric-value { font-size: 1.7rem; font-weight: 700; color: #FFFFFF; }
-    .metric-sub { font-size: 0.78rem; color: #718096; }
-    .extractor-container {
-        background: rgba(99, 102, 241, 0.05);
-        border: 1px solid rgba(99, 102, 241, 0.2);
+        background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
+        border: 1px solid rgba(255, 255, 255, 0.09);
         border-radius: 14px;
-        padding: 20px;
-        margin-bottom: 15px;
+        padding: 16px 20px;
+        transition: border-color 0.15s ease;
     }
+    .metric-card:hover { border-color: rgba(99, 102, 241, 0.45); }
+    .metric-title {
+        font-size: 0.72rem; color: #94A3B8; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;
+    }
+    .metric-value { font-size: 1.85rem; font-weight: 800; color: #F8FAFC; line-height: 1.15; }
+    .metric-sub { font-size: 0.78rem; color: #64748B; margin-top: 2px; }
+
+    /* Extractor input container */
+    .extractor-container {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.04));
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        border-radius: 16px;
+        padding: 22px 24px;
+        margin-bottom: 16px;
+    }
+    .extractor-container h3 { margin: 0 0 6px 0; }
+
+    /* Section label chip, used before each chart group */
+    .section-chip {
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: #A5B4FC;
+        background: rgba(99, 102, 241, 0.12);
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        border-radius: 999px;
+        padding: 3px 12px;
+        margin-bottom: 10px;
+    }
+
+    div[data-testid="stExpander"] { border-radius: 12px; border-color: rgba(255,255,255,0.08); }
+    div[data-testid="stTabs"] button { font-weight: 600; }
     </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+def metric_card(col, title, value, sub=None, color=None):
+  color_style = f' style="color:{color}"' if color else ""
+  sub_html = f'<div class="metric-sub">{sub}</div>' if sub else ""
+  col.markdown(
+      f"""<div class="metric-card">
+            <div class="metric-title">{title}</div>
+            <div class="metric-value"{color_style}>{value}</div>
+            {sub_html}
+          </div>""",
+      unsafe_allow_html=True,
+  )
+
+
+def section_header(text):
+  st.markdown(f'<div class="section-chip">{text}</div>', unsafe_allow_html=True)
 
 
 # 8. Load Dataset Benchmark (20 VTuber)
@@ -236,27 +308,16 @@ col_text_raw = find_col(
     ],
 )
 
-# Map Nomor Topik LDA ke Label Deskriptif
-TOPIC_MAP = {
-    1: "Topik 1: Sapaan & Interaksi",
-    2: "Topik 2: Respon & Obrolan",
-    3: "Topik 3: Ucapan Datang / Live",
-    4: "Topik 4: Apresiasi Stream (Otsu)",
-    5: "Topik 5: Ekspresi Suka / Tertawa",
-    "1": "Topik 1: Sapaan & Interaksi",
-    "2": "Topik 2: Respon & Obrolan",
-    "3": "Topik 3: Ucapan Datang / Live",
-    "4": "Topik 4: Apresiasi Stream (Otsu)",
-    "5": "Topik 5: Ekspresi Suka / Tertawa",
-    1.0: "Topik 1: Sapaan & Interaksi",
-    2.0: "Topik 2: Respon & Obrolan",
-    3.0: "Topik 3: Ucapan Datang / Live",
-    4.0: "Topik 4: Apresiasi Stream (Otsu)",
-    5.0: "Topik 5: Ekspresi Suka / Tertawa",
-    0: "Topik 1: Sapaan & Interaksi",
-    "0": "Topik 1: Sapaan & Interaksi",
-    0.0: "Topik 1: Sapaan & Interaksi",
-}
+# Map Nomor Topik LDA ke Label Deskriptif (dibangun otomatis dari TOPIC_LABELS
+# supaya penamaan topik selalu konsisten di seluruh dashboard)
+TOPIC_MAP = {}
+for _num, _label in TOPIC_LABELS.items():
+  TOPIC_MAP[_num] = _label
+  TOPIC_MAP[str(_num)] = _label
+  TOPIC_MAP[float(_num)] = _label
+TOPIC_MAP[0] = TOPIC_LABELS[1]
+TOPIC_MAP["0"] = TOPIC_LABELS[1]
+TOPIC_MAP[0.0] = TOPIC_LABELS[1]
 
 col_topik = "Nama Topik LDA"
 
@@ -291,18 +352,18 @@ if not df_benchmark.empty:
           r"halo|hai|bang|malam|pagi|siang|kalian|sil|tris", regex=True
       )
 
-      fallback = pd.Series("Topik 2: Respon & Obrolan", index=df_benchmark.index)
-      fallback[c1] = "Topik 1: Sapaan & Interaksi"
-      fallback[c3] = "Topik 3: Ucapan Datang / Live"
-      fallback[c5] = "Topik 5: Ekspresi Suka / Tertawa"
-      fallback[c4] = "Topik 4: Apresiasi Stream (Otsu)"
+      fallback = pd.Series(TOPIC_LABELS[2], index=df_benchmark.index)
+      fallback[c1] = TOPIC_LABELS[1]
+      fallback[c3] = TOPIC_LABELS[3]
+      fallback[c5] = TOPIC_LABELS[5]
+      fallback[c4] = TOPIC_LABELS[4]
 
       df_benchmark[col_topik] = df_benchmark[col_topik].where(
           ~mask_invalid, fallback
       )
     else:
       df_benchmark[col_topik] = df_benchmark[col_topik].replace(
-          ["General", "nan", "", "none", "null"], "Topik 2: Respon & Obrolan"
+          ["General", "nan", "", "none", "null"], TOPIC_LABELS[2]
       )
 
 COLOR_POS = "#10B981"
@@ -333,6 +394,10 @@ def style_fig(fig):
 
 # HEADER UTAMA
 st.title("VTuber Live Chat Mining & Analytics System")
+st.caption(
+    "Dashboard riset untuk memantau sentimen dan topik obrolan penonton"
+    " VTuber Indonesia secara langsung maupun berbasis data historis."
+)
 
 # PILIHAN MODE DIPINDAH KE SIDEBAR
 st.sidebar.markdown("### Navigasi Mode Aplikasi")
@@ -353,21 +418,27 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
   st.markdown(
       """
         <div class="extractor-container">
-            <h3 style="margin-top:0;">Fitur Penarikan Live Chat Stream Single-URL</h3>
+            <h3>Ekstraksi Live Chat dari Satu Video YouTube</h3>
             <p style="color: #A0AEC0; font-size: 0.9rem; margin-bottom: 0;">
-                Masukkan 1 link YouTube Live/Replay untuk pengujian inferensi real-time. Sentimen diklasifikasikan menggunakan <b>Model Naïve Bayes (.pkl)</b> dan topik dipetakan berbasis <b>LDA Model</b>.
+                Tempelkan tautan video YouTube (live maupun replay) untuk menjalankan analisis
+                secara langsung. Setiap chat akan diklasifikasikan sentimennya lewat model
+                <b>Naive Bayes</b>, sementara topik pembicaraannya dipetakan berdasarkan pola
+                dari model <b>LDA</b>.
             </p>
         </div>
     """,
       unsafe_allow_html=True,
   )
 
-  st.info("Data ekstraksi ini berdasar pada data latih dari 20 VTuber.")
+  st.info(
+      "Model yang dipakai pada fitur ini dilatih menggunakan data dari 20 kanal"
+      " VTuber yang sudah diteliti sebelumnya."
+  )
 
   if model_nb is None:
     st.warning(
-        "File model_sentiment.pkl belum terdeteksi di repositori. Prediksi"
-        " sentimen berjalan dalam mode standar."
+        "Berkas model_sentiment.pkl belum ditemukan di repositori, sehingga"
+        " prediksi sentimen untuk sementara memakai nilai bawaan (default)."
     )
 
   col_url, col_kat = st.columns([3, 1])
@@ -400,13 +471,11 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     original_url = input_url.strip() if input_url else ""
 
     if not original_url:
-      st.warning(
-          "Silakan masukkan URL Video YouTube Live Replay terlebih dahulu."
-      )
+      st.warning("Masukkan URL video YouTube live/replay terlebih dahulu.")
     elif not HAS_SCRAPER:
       st.error(
-          "Library `yt-chat-downloader` belum terinstal di server. Pastikan"
-          " requirements.txt sudah diupdate."
+          "Pustaka yt-chat-downloader belum terpasang di server. Periksa"
+          " kembali apakah requirements.txt sudah mencakup pustaka ini."
       )
     else:
       clean_url = original_url
@@ -416,8 +485,8 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         clean_url = clean_url.split("?si=")[0]
 
       status_box = st.info(
-          "Sedang menarik live chat asli, memproses pembersihan teks,"
-          " memprediksi sentimen, dan mengekstrak topik..."
+          "Sedang mengambil live chat, membersihkan teksnya, lalu menjalankan"
+          " prediksi sentimen dan pemetaan topik..."
       )
 
       try:
@@ -449,15 +518,15 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
 
         if not extracted_rows:
           st.error(
-              "Live chat tidak terdeteksi pada video ini. Pastikan video"
-              " memiliki Replay Live Chat yang aktif di YouTube."
+              "Live chat tidak ditemukan pada video ini. Pastikan video"
+              " memiliki riwayat live chat yang aktif di YouTube."
           )
         else:
           df_res = pd.DataFrame(extracted_rows)
           st.session_state["real_extracted_data"] = df_res
           st.success(
-              "Berhasil mengekstrak dan menganalisis"
-              f" **{len(df_res):,} baris** live chat!"
+              f"Berhasil mengekstrak dan menganalisis **{len(df_res):,} baris**"
+              " live chat."
           )
 
       except Exception as e:
@@ -475,36 +544,39 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     neg_real = (df_real["Prediksi Sentimen"] == "Negatif").sum()
     pos_pct = (pos_real / total_real * 100) if total_real > 0 else 0
     neg_pct = (neg_real / total_real * 100) if total_real > 0 else 0
+    unique_users = df_real["Username"].nunique()
+    avg_len = df_real["Chat Text"].astype(str).str.len().mean()
+
+    # Parsing timestamp untuk chart berbasis waktu — tidak memaksa gagal
+    # kalau formatnya tidak konsisten dari scraper.
+    df_time = df_real.copy()
+    df_time["Timestamp_parsed"] = pd.to_datetime(
+        df_time["Timestamp"], errors="coerce"
+    )
+    has_valid_time = df_time["Timestamp_parsed"].notna().sum() >= 3
 
     st.markdown("---")
     st.subheader("Hasil Analisis Data Realtime")
 
-    m1, m2, m3 = st.columns(3)
-    m1.markdown(
-        '<div class="metric-card"><div class="metric-title">Total Live Chat'
-        f' Ter-ekstrak</div><div class="metric-value">{total_real:,}</div></div>',
-        unsafe_allow_html=True,
+    m1, m2, m3, m4 = st.columns(4)
+    metric_card(m1, "Total Live Chat Ter-ekstrak", f"{total_real:,}")
+    metric_card(
+        m2, "Sentimen Positif", f"{pos_pct:.1f}%", f"{pos_real:,} chat", COLOR_POS
     )
-    m2.markdown(
-        '<div class="metric-card"><div class="metric-title">Sentimen'
-        ' Positif</div><div class="metric-value"'
-        f' style="color:{COLOR_POS}">{pos_pct:.1f}%</div><div'
-        f' class="metric-sub">{pos_real:,} chat</div></div>',
-        unsafe_allow_html=True,
+    metric_card(
+        m3, "Sentimen Negatif", f"{neg_pct:.1f}%", f"{neg_real:,} chat", COLOR_NEG
     )
-    m3.markdown(
-        '<div class="metric-card"><div class="metric-title">Sentimen'
-        ' Negatif</div><div class="metric-value"'
-        f' style="color:{COLOR_NEG}">{neg_pct:.1f}%</div><div'
-        f' class="metric-sub">{neg_real:,} chat</div></div>',
-        unsafe_allow_html=True,
+    metric_card(
+        m4, "Penonton Unik Mengobrol", f"{unique_users:,}",
+        f"rata-rata {avg_len:.0f} karakter/chat",
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    section_header("Sentimen & Topik")
     c_g1, c_g2 = st.columns(2)
     with c_g1:
-      st.markdown("##### Proporsi Sentimen (Naïve Bayes)")
+      st.markdown("##### Proporsi Sentimen (Naive Bayes)")
       fig_sent = px.pie(
           df_real,
           names="Prediksi Sentimen",
@@ -537,7 +609,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       st.plotly_chart(style_fig(fig_top_sent), use_container_width=True)
 
     with c_g4:
-      st.markdown("##### 10 Kata Kunci Terbanyak Dalam Stream")
+      st.markdown("##### 10 Kata Kunci Terbanyak dalam Stream")
       semua_kata = " ".join(
           df_real["Pesan Bersih (Sastrawi)"].dropna()
       ).split()
@@ -555,6 +627,83 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         st.plotly_chart(style_fig(fig_words), use_container_width=True)
       else:
         st.info("Belum ada kata bersih yang cukup untuk dihitung.")
+
+    # ---------------- DIAGRAM TAMBAHAN ----------------
+    st.markdown("<br>", unsafe_allow_html=True)
+    section_header("Aktivitas & Partisipasi Penonton")
+
+    c_g5, c_g6 = st.columns(2)
+    with c_g5:
+      st.markdown("##### 10 Penonton Paling Aktif Mengobrol")
+      top_users = (
+          df_real["Username"].value_counts().head(10).reset_index()
+      )
+      top_users.columns = ["Username", "Jumlah Chat"]
+      fig_users = px.bar(
+          top_users,
+          x="Jumlah Chat",
+          y="Username",
+          orientation="h",
+          color_discrete_sequence=["#8B5CF6"],
+      )
+      fig_users.update_layout(yaxis=dict(autorange="reversed"))
+      st.plotly_chart(style_fig(fig_users), use_container_width=True)
+
+    with c_g6:
+      st.markdown("##### Distribusi Panjang Pesan per Sentimen")
+      df_real_len = df_real.copy()
+      df_real_len["Panjang Pesan"] = (
+          df_real_len["Chat Text"].astype(str).str.len()
+      )
+      fig_len = px.box(
+          df_real_len,
+          x="Prediksi Sentimen",
+          y="Panjang Pesan",
+          color="Prediksi Sentimen",
+          color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
+      )
+      st.plotly_chart(style_fig(fig_len), use_container_width=True)
+
+    if has_valid_time:
+      df_time = df_time.dropna(subset=["Timestamp_parsed"]).sort_values(
+          "Timestamp_parsed"
+      )
+      df_time["Menit ke-"] = df_time["Timestamp_parsed"].dt.floor("min")
+
+      c_g7, c_g8 = st.columns(2)
+      with c_g7:
+        st.markdown("##### Volume Chat Sepanjang Stream")
+        vol_per_menit = (
+            df_time.groupby("Menit ke-").size().reset_index(name="Jumlah Chat")
+        )
+        fig_vol = px.area(
+            vol_per_menit,
+            x="Menit ke-",
+            y="Jumlah Chat",
+            color_discrete_sequence=["#6366F1"],
+        )
+        st.plotly_chart(style_fig(fig_vol), use_container_width=True)
+
+      with c_g8:
+        st.markdown("##### Tren Sentimen Sepanjang Stream")
+        sent_per_menit = (
+            df_time.groupby(["Menit ke-", "Prediksi Sentimen"])
+            .size()
+            .reset_index(name="Jumlah Chat")
+        )
+        fig_trend = px.line(
+            sent_per_menit,
+            x="Menit ke-",
+            y="Jumlah Chat",
+            color="Prediksi Sentimen",
+            color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
+        )
+        st.plotly_chart(style_fig(fig_trend), use_container_width=True)
+    else:
+      st.caption(
+          "Grafik tren berbasis waktu belum bisa ditampilkan karena format"
+          " timestamp dari video ini tidak terbaca dengan jelas."
+      )
 
     st.markdown("---")
 
@@ -581,12 +730,10 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
 # ==========================================================
 else:
   if df_benchmark.empty:
-    st.error(
-        "File dataset benchmark (.xlsx) tidak ditemukan di repositori GitHub!"
-    )
+    st.error("File dataset benchmark (.xlsx) tidak ditemukan di repositori.")
     st.info(
-        "Pastikan file `data_vtuber_labeled.xlsx` atau"
-        " `hasil_akhir_analisis_skripsi.xlsx` ada di repo."
+        "Pastikan berkas `data_vtuber_labeled.xlsx` atau"
+        " `hasil_akhir_analisis_skripsi.xlsx` sudah tersedia di repo."
     )
   else:
     st.sidebar.markdown("### Filter Panel Global")
@@ -639,39 +786,22 @@ else:
         neg_pct = (neg_chat / total_chat * 100) if total_chat > 0 else 0
 
         c1, c2, c3 = st.columns(3)
-        c1.markdown(
-            '<div class="metric-card"><div class="metric-title">Total Chat'
-            f' Menganalisis</div><div class="metric-value">{total_chat:,}</div></div>',
-            unsafe_allow_html=True,
+        metric_card(c1, "Total Chat Dianalisis", f"{total_chat:,}")
+        metric_card(
+            c2, "Sentimen Positif", f"{pos_pct:.1f}%", f"{pos_chat:,} chat", COLOR_POS
         )
-        c2.markdown(
-            '<div class="metric-card"><div class="metric-title">Sentimen'
-            ' Positif</div><div class="metric-value"'
-            f' style="color:{COLOR_POS}">{pos_pct:.1f}%</div><div'
-            f' class="metric-sub">{pos_chat:,} chat</div></div>',
-            unsafe_allow_html=True,
-        )
-        c3.markdown(
-            '<div class="metric-card"><div class="metric-title">Sentimen'
-            ' Negatif</div><div class="metric-value"'
-            f' style="color:{COLOR_NEG}">{neg_pct:.1f}%</div><div'
-            f' class="metric-sub">{neg_chat:,} chat</div></div>',
-            unsafe_allow_html=True,
+        metric_card(
+            c3, "Sentimen Negatif", f"{neg_pct:.1f}%", f"{neg_chat:,} chat", COLOR_NEG
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
         with st.expander(
-            "Petunjuk Kata Kunci Tiap Topik LDA (Klik untuk Membuka)",
+            "Kata Kunci Acuan untuk Tiap Topik LDA (klik untuk membuka)",
             expanded=False,
         ):
-          st.markdown("""
-                    * **Topik 1 (Sapaan & Interaksi)**: *bang, banget, sil, tris, kalian, malam*
-                    * **Topik 2 (Respon & Obrolan)**: *aku, di, itu, ga, yang, ada*
-                    * **Topik 3 (Ucapan Datang/Live)**: *the, live, selamat, datang, di, semoga*
-                    * **Topik 4 (Apresiasi Stream)**: *kak, halo, jangan, otsu, stream, ka*
-                    * **Topik 5 (Ekspresi Suka/Tertawa)**: *lagi, dan, wkwkwk, suka, lah, dengan*
-                    """)
+          for _num, _label in TOPIC_LABELS.items():
+            st.markdown(f"* **{_label}** — *{TOPIC_KEYWORD_HINTS[_num]}*")
 
         col_a, col_b = st.columns(2)
         with col_a:
@@ -712,8 +842,8 @@ else:
       with tab2:
         st.markdown("### Profil dan Informasi Dataset 20 VTuber")
         st.caption(
-            "Menampilkan rincian demografi sampel riset dan perbandingan"
-            " metrik performa antar kanal independen."
+            "Gambaran umum sampel penelitian, dilengkapi perbandingan"
+            " performa antar kanal independen."
         )
 
         # Layout 2 Kolom di Bagian Atas: Kiri untuk Profil & Keterangan, Kanan untuk Tabel 20 VTuber
@@ -722,15 +852,15 @@ else:
         with col_prof_left:
           st.markdown("#### Ringkasan Karakteristik Sampel")
           st.markdown("""
-              Dataset ini terdiri dari **20 VTuber independen** yang aktif di ranah digital Indonesia. 
-              
+              Dataset ini terdiri dari **20 VTuber independen** yang aktif di ranah digital Indonesia.
+
               * **Rentang Pengambilan Data:** Februari 2026 hingga Juli 2026.
               * **Periode Pengerjaan Riset:** Mei hingga Juni 2026.
               * **Fokus Analisis:** Mengukur interaksi penonton, performa live stream, dominasi topik, serta sentimen obrolan real-time berbasis model pembelajaran mesin.
               """)
           st.info(
-              "Data ini digunakan sebagai basis benchmark untuk mengevaluasi"
-              " pola interaksi audience pada kanal VTuber independen."
+              "Data ini dipakai sebagai acuan pembanding untuk melihat pola"
+              " interaksi audiens pada kanal-kanal VTuber independen."
           )
 
         with col_prof_right:
@@ -1031,8 +1161,8 @@ else:
       with tab3:
         st.markdown("### Analisis Komparatif & Korelasi Kategori Stream")
         st.caption(
-            "Membedah korelasi antara format tayangan stream dengan pola"
-            " respon sentimen dan topik pembicaraan audience."
+            "Membedah keterkaitan antara format tayangan stream dengan pola"
+            " respon sentimen dan topik pembicaraan audiens."
         )
 
         if col_stream in df_filtered.columns:
