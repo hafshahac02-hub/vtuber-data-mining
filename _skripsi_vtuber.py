@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import tempfile
 from collections import Counter
 
 import joblib
@@ -11,11 +10,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 try:
-  from fpdf import FPDF
+  from PIL import Image  # noqa: F401 -- dipakai untuk menyusun PDF satu halaman
 
-  HAS_FPDF = True
+  HAS_PIL = True
 except Exception:
-  HAS_FPDF = False
+  HAS_PIL = False
 
 try:
   import kaleido  # noqa: F401 -- required by plotly's fig.to_image()
@@ -692,11 +691,31 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       df_time = df_time.dropna(subset=["Timestamp_parsed"]).sort_values(
           "Timestamp_parsed"
       )
-      df_time["Menit ke-"] = df_time["Timestamp_parsed"].dt.floor("min")
+
+      # Ukuran interval mengikuti durasi total stream, supaya video yang
+      # berjam-jam tidak menghasilkan ratusan titik data yang bikin
+      # grafiknya jadi garis tipis bergerigi.
+      durasi_menit = (
+          df_time["Timestamp_parsed"].max() - df_time["Timestamp_parsed"].min()
+      ).total_seconds() / 60
+      if durasi_menit <= 60:
+        interval_menit = 5
+      elif durasi_menit <= 180:
+        interval_menit = 10
+      elif durasi_menit <= 300:
+        interval_menit = 20
+      else:
+        interval_menit = 30
+
+      df_time["Menit ke-"] = df_time["Timestamp_parsed"].dt.floor(
+          f"{interval_menit}min"
+      )
 
       c_g7, c_g8 = st.columns(2)
       with c_g7:
-        st.markdown("##### Volume Chat Sepanjang Stream")
+        st.markdown(
+            f"##### Volume Chat Sepanjang Stream (per {interval_menit} menit)"
+        )
         vol_per_menit = (
             df_time.groupby("Menit ke-").size().reset_index(name="Jumlah Chat")
         )
@@ -707,10 +726,12 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
             color_discrete_sequence=["#6366F1"],
         )
         st.plotly_chart(style_fig(fig_vol), use_container_width=True)
-        charts_for_pdf["Volume Chat Sepanjang Stream"] = fig_vol
+        charts_for_pdf[f"Volume Chat Sepanjang Stream (per {interval_menit} menit)"] = fig_vol
 
       with c_g8:
-        st.markdown("##### Tren Sentimen Sepanjang Stream")
+        st.markdown(
+            f"##### Tren Sentimen Sepanjang Stream (per {interval_menit} menit)"
+        )
         sent_per_menit = (
             df_time.groupby(["Menit ke-", "Prediksi Sentimen"])
             .size()
@@ -724,7 +745,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
             color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
         )
         st.plotly_chart(style_fig(fig_trend), use_container_width=True)
-        charts_for_pdf["Tren Sentimen Sepanjang Stream"] = fig_trend
+        charts_for_pdf[f"Tren Sentimen Sepanjang Stream (per {interval_menit} menit)"] = fig_trend
     else:
       st.caption(
           "Grafik tren berbasis waktu belum bisa ditampilkan karena format"
@@ -742,33 +763,76 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         df_to_download.to_excel(writer, index=False)
       return buffer.getvalue()
 
-    def convert_charts_to_pdf(fig_dict, judul, ringkasan_baris):
-      pdf = FPDF(orientation="P", unit="mm", format="A4")
-      pdf.set_auto_page_break(auto=True, margin=15)
+    def _fig_for_print(fig, judul_chart):
+      # Chart di layar pakai tema gelap (teks abu-abu terang di atas latar
+      # transparan). Kalau dipakai langsung untuk export PNG/PDF berlatar
+      # putih, teksnya jadi nyaris tak kelihatan. Di sini dibuat salinan
+      # dengan tema terang khusus untuk dicetak, tanpa mengubah versi yang
+      # tampil di dashboard.
+      fig_print = go.Figure(fig)
+      fig_print.update_layout(
+          title=dict(text=judul_chart, x=0.02, xanchor="left",
+                      font=dict(size=18, color="#111827")),
+          paper_bgcolor="white",
+          plot_bgcolor="white",
+          font=dict(family="Arial, Helvetica, sans-serif", color="#111827", size=13),
+          legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right",
+                       x=1, font=dict(color="#111827")),
+          margin=dict(l=100, r=40, t=70, b=70),
+      )
+      fig_print.update_xaxes(color="#111827", gridcolor="#E5E7EB")
+      fig_print.update_yaxes(color="#111827", gridcolor="#E5E7EB")
+      return fig_print
 
-      pdf.add_page()
-      pdf.set_font("Helvetica", "B", 16)
-      pdf.multi_cell(0, 10, judul, align="C")
-      pdf.ln(2)
-      pdf.set_font("Helvetica", "", 11)
+    def convert_charts_to_onepage_pdf(fig_dict, judul, ringkasan_baris):
+      from PIL import Image, ImageDraw, ImageFont
+
+      COLS = 2
+      CELL_W, CELL_H = 950, 620
+      PAD = 24
+      HEADER_H = 170
+
+      n = len(fig_dict)
+      rows = (n + COLS - 1) // COLS
+      canvas_w = PAD * (COLS + 1) + CELL_W * COLS
+      canvas_h = HEADER_H + PAD * (rows + 1) + CELL_H * rows
+
+      canvas = Image.new("RGB", (canvas_w, canvas_h), "white")
+      draw = ImageDraw.Draw(canvas)
+
+      try:
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 34)
+        font_body = ImageFont.truetype("DejaVuSans.ttf", 20)
+      except Exception:
+        font_title = ImageFont.load_default()
+        font_body = ImageFont.load_default()
+
+      draw.text((PAD, 24), judul, fill="#111827", font=font_title)
+      y_text = 74
       for baris in ringkasan_baris:
-        pdf.cell(0, 8, baris, ln=True)
+        draw.text((PAD, y_text), baris, fill="#374151", font=font_body)
+        y_text += 28
 
-      for nama_chart, fig in fig_dict.items():
-        img_bytes = fig.to_image(format="png", width=1000, height=620, scale=2)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-          tmp.write(img_bytes)
-          tmp_path = tmp.name
-        try:
-          pdf.add_page()
-          pdf.set_font("Helvetica", "B", 13)
-          pdf.multi_cell(0, 10, nama_chart)
-          pdf.image(tmp_path, x=10, y=30, w=190)
-        finally:
-          os.remove(tmp_path)
+      for i, (nama_chart, fig) in enumerate(fig_dict.items()):
+        fig_print = _fig_for_print(fig, nama_chart)
+        img_bytes = fig_print.to_image(
+            format="png", width=CELL_W, height=CELL_H, scale=2
+        )
+        chart_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        chart_img = chart_img.resize((CELL_W, CELL_H))
 
-      raw = pdf.output()
-      return bytes(raw) if not isinstance(raw, (bytes, bytearray)) else bytes(raw)
+        col = i % COLS
+        row = i // COLS
+        x = PAD + col * (CELL_W + PAD)
+        y = HEADER_H + PAD + row * (CELL_H + PAD)
+        canvas.paste(chart_img, (x, y))
+        draw.rectangle(
+            [x, y, x + CELL_W, y + CELL_H], outline="#D1D5DB", width=2
+        )
+
+      buffer = io.BytesIO()
+      canvas.save(buffer, format="PDF", resolution=150.0)
+      return buffer.getvalue()
 
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
@@ -783,15 +847,15 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       )
 
     with col_dl2:
-      if not HAS_FPDF or not HAS_KALEIDO:
+      if not HAS_KALEIDO or not HAS_PIL:
         st.button(
             "Unduh Seluruh Grafik (.pdf)",
             disabled=True,
             use_container_width=True,
             help=(
-                "Pustaka fpdf2 dan/atau kaleido belum terpasang di server."
-                " Tambahkan keduanya ke requirements.txt untuk mengaktifkan"
-                " fitur ini."
+                "Pustaka kaleido dan/atau Pillow belum terpasang di server."
+                " Tambahkan kaleido==0.2.1 ke requirements.txt untuk"
+                " mengaktifkan fitur ini."
             ),
         )
       else:
@@ -799,14 +863,14 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
             "Siapkan & Unduh Seluruh Grafik (.pdf)",
             use_container_width=True,
         ):
-          with st.spinner("Menyusun laporan PDF dari seluruh grafik..."):
+          with st.spinner("Menyusun laporan PDF satu halaman dari seluruh grafik..."):
             ringkasan = [
                 f"Total live chat ter-ekstrak: {total_real:,}",
-                f"Sentimen positif: {pos_real:,} ({pos_pct:.1f}%)  |"
-                f"  Sentimen negatif: {neg_real:,} ({neg_pct:.1f}%)",
-                f"Penonton unik mengobrol: {unique_users:,}",
+                f"Sentimen positif: {pos_real:,} ({pos_pct:.1f}%)   |"
+                f"   Sentimen negatif: {neg_real:,} ({neg_pct:.1f}%)"
+                f"   |   Penonton unik: {unique_users:,}",
             ]
-            pdf_bytes = convert_charts_to_pdf(
+            pdf_bytes = convert_charts_to_onepage_pdf(
                 charts_for_pdf,
                 "Laporan Grafik Analisis Live Chat Realtime",
                 ringkasan,
