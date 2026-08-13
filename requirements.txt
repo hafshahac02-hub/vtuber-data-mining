@@ -8,5 +8,5 @@ Sastrawi
 pyLDAvis
 gensim
 yt-chat-downloader
-kaleido
+kaleido==0.2.1
 fpdf2
