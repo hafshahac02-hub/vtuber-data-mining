@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import traceback
 from collections import Counter
 
 import joblib
@@ -503,15 +504,21 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           " prediksi sentimen dan pemetaan topik..."
       )
 
+      # ---- DEBUG MODE ----
+      # quiet diset False sementara supaya warning asli dari library
+      # (mis. "chat is disabled", "members-only", dsb.) tercetak ke log
+      # aplikasi (Streamlit Cloud -> Manage app -> Logs), bukan disembunyikan.
       try:
         downloader = YouTubeChatDownloader()
         messages = downloader.download_chat(
-            video_url=clean_url, chat_type="live", quiet=True
+            video_url=clean_url, chat_type="live", quiet=False
         )
 
         extracted_rows = []
+        raw_message_count = 0
 
         for msg in messages:
+          raw_message_count += 1
           komentar_asli = msg.get("comment", "")
           if komentar_asli:
             clean_text = preprocess_text(komentar_asli)
@@ -531,10 +538,24 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         status_box.empty()
 
         if not extracted_rows:
-          st.error(
-              "Live chat tidak ditemukan pada video ini. Pastikan video"
-              " memiliki riwayat live chat yang aktif di YouTube."
-          )
+          if raw_message_count == 0:
+            st.error(
+                "Live chat tidak ditemukan pada video ini "
+                "(0 pesan mentah diterima dari scraper). Kemungkinan "
+                "penyebab: (1) replay chat dimatikan oleh streamer untuk "
+                "video ini, (2) video butuh login/age-restricted/members-only, "
+                "atau (3) IP server Streamlit Cloud diblokir/diarahkan ke "
+                "halaman consent oleh YouTube sehingga scraper tidak melihat "
+                "chat sama sekali. Cek 'Manage app > Logs' di Streamlit Cloud "
+                "untuk pesan warning asli dari library scraper-nya."
+            )
+          else:
+            st.error(
+                f"Scraper menerima {raw_message_count} pesan mentah, tapi "
+                "semuanya tanpa field 'comment' yang valid — kemungkinan "
+                "format respons dari YouTube berubah dan library scraper "
+                "perlu di-update ke versi terbaru."
+            )
         else:
           df_res = pd.DataFrame(extracted_rows)
           st.session_state["real_extracted_data"] = df_res
@@ -545,7 +566,9 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
 
       except Exception as e:
         status_box.empty()
-        st.error(f"Terjadi kesalahan saat menarik data: {e}")
+        st.error(f"Terjadi kesalahan saat menarik data: {type(e).__name__}: {e}")
+        with st.expander("Detail traceback (untuk debugging)"):
+          st.code(traceback.format_exc())
 
   # TAMPILAN HASIL ANALISIS REALTIME
   if (
