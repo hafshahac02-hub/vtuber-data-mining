@@ -11,27 +11,27 @@ import plotly.graph_objects as go
 import streamlit as st
 
 try:
-  from PIL import Image  # noqa: F401 -- dipakai untuk menyusun PDF satu halaman
+  from PIL import Image  # noqa: F401
 
   HAS_PIL = True
 except Exception:
   HAS_PIL = False
 
 try:
-  import kaleido  # noqa: F401 -- required by plotly's fig.to_image()
+  import kaleido  # noqa: F401
 
   HAS_KALEIDO = True
 except Exception:
   HAS_KALEIDO = False
 
-# 1. Konfigurasi Halaman Streamlit
+# Konfigurasi halaman
 st.set_page_config(
     page_title="VTuber Analytics & Live Chat Extractor",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# 2. Import Scraper & Sastrawi
+# Import scraper & Sastrawi
 try:
   from yt_chat_downloader import YouTubeChatDownloader
 
@@ -50,7 +50,7 @@ except Exception:
   HAS_SASTRAWI = False
 
 
-# 3. Load Model Machine Learning (.pkl) Hasil Latihan Dataset 20 VTuber
+# Load model machine learning (.pkl) hasil latihan dataset 20 VTuber
 @st.cache_resource
 def load_ml_model():
   try:
@@ -64,7 +64,7 @@ def load_ml_model():
 model_nb, tfidf_vec = load_ml_model()
 
 
-# 4. Preprocessing Sastrawi
+# Preprocessing Sastrawi
 @st.cache_resource
 def load_sastrawi_tools():
   if HAS_SASTRAWI:
@@ -95,7 +95,7 @@ def preprocess_text(text):
   return text.strip()
 
 
-# 5. Prediksi Sentimen Naive Bayes (.pkl)
+# Prediksi sentimen Naive Bayes (.pkl)
 def prediksi_sentimen_ml(teks_bersih, teks_asli):
   input_text = teks_bersih if teks_bersih else str(teks_asli).lower()
   if model_nb and tfidf_vec:
@@ -108,11 +108,8 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
   return "Positif"
 
 
-# ==========================================================
-# 6. LABEL TOPIK — satu sumber kebenaran dipakai di seluruh app
-# (isi & urutan keyword TIDAK diubah, hanya penamaan/tampilannya
-# dirapikan supaya tidak terasa acak/aneh)
-# ==========================================================
+# Label topik LDA — satu sumber kebenaran dipakai di seluruh app.
+# Isi & urutan keyword TIDAK diubah, hanya penamaan/tampilannya dirapikan.
 TOPIC_LABELS = {
     1: "Topik 1 · Sapaan & Interaksi",
     2: "Topik 2 · Obrolan Umum",
@@ -188,7 +185,7 @@ def deteksi_topik_realtime(teks_bersih):
     return TOPIC_LABELS[2]
 
 
-# 7. Styling CSS UI Modern
+# Styling CSS UI
 st.markdown(
     """
     <style>
@@ -200,7 +197,6 @@ st.markdown(
     h1, h2, h3, h4, h5 { font-weight: 700 !important; letter-spacing: -0.01em; }
     h1 { font-size: 1.9rem !important; }
 
-    /* Metric cards */
     .metric-card {
         background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
         border: 1px solid rgba(255, 255, 255, 0.09);
@@ -216,7 +212,6 @@ st.markdown(
     .metric-value { font-size: 1.85rem; font-weight: 800; color: #F8FAFC; line-height: 1.15; }
     .metric-sub { font-size: 0.78rem; color: #64748B; margin-top: 2px; }
 
-    /* Extractor input container */
     .extractor-container {
         background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.04));
         border: 1px solid rgba(99, 102, 241, 0.25);
@@ -226,7 +221,6 @@ st.markdown(
     }
     .extractor-container h3 { margin: 0 0 6px 0; }
 
-    /* Section label chip, used before each chart group */
     .section-chip {
         display: inline-block;
         font-size: 0.7rem;
@@ -250,23 +244,26 @@ st.markdown(
 
 
 def metric_card(col, title, value, sub=None, color=None):
+  # HTML dirangkai jadi satu baris (tanpa indentasi menjorok) supaya tidak
+  # ditangkap markdown Streamlit sebagai indented code block — itu penyebab
+  # tag penutup </div> sempat muncul sebagai teks mentah di kartu.
   color_style = f' style="color:{color}"' if color else ""
   sub_html = f'<div class="metric-sub">{sub}</div>' if sub else ""
-  col.markdown(
-      f"""<div class="metric-card">
-            <div class="metric-title">{title}</div>
-            <div class="metric-value"{color_style}>{value}</div>
-            {sub_html}
-          </div>""",
-      unsafe_allow_html=True,
+  html = (
+      f'<div class="metric-card">'
+      f'<div class="metric-title">{title}</div>'
+      f'<div class="metric-value"{color_style}>{value}</div>'
+      f"{sub_html}"
+      f"</div>"
   )
+  col.markdown(html, unsafe_allow_html=True)
 
 
 def section_header(text):
   st.markdown(f'<div class="section-chip">{text}</div>', unsafe_allow_html=True)
 
 
-# 8. Load Dataset Benchmark (20 VTuber)
+# Load dataset benchmark (20 VTuber)
 @st.cache_data
 def load_benchmark_data():
   files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
@@ -286,7 +283,7 @@ def load_benchmark_data():
 df_benchmark = load_benchmark_data()
 
 
-# LOGIKA DETEKSI KOLOM DAN PEMETAAN TOPIK DENGAN OTOMATISASI DETEKSI ANTI-GENERAL
+# Deteksi kolom & pemetaan topik otomatis (anti-"General")
 def find_col(df, possible_names, default=None):
   if df.empty:
     return default
@@ -323,8 +320,8 @@ col_text_raw = find_col(
     ],
 )
 
-# Map Nomor Topik LDA ke Label Deskriptif (dibangun otomatis dari TOPIC_LABELS
-# supaya penamaan topik selalu konsisten di seluruh dashboard)
+# Map nomor topik LDA ke label deskriptif (dibangun otomatis dari
+# TOPIC_LABELS supaya penamaan topik selalu konsisten di seluruh dashboard)
 TOPIC_MAP = {}
 for _num, _label in TOPIC_LABELS.items():
   TOPIC_MAP[_num] = _label
@@ -345,7 +342,7 @@ if not df_benchmark.empty:
   else:
     df_benchmark[col_topik] = "General"
 
-  # DETEKSI OTOMATIS: Jika bernilai 'General', 'nan', atau kosong, lakukan analisis kata kunci cepat
+  # Kalau nilainya "General"/kosong, lakukan analisis kata kunci cepat
   mask_invalid = df_benchmark[col_topik].isna() | df_benchmark[
       col_topik
   ].astype(str).str.lower().isin(["general", "nan", "", "none", "null"])
@@ -407,14 +404,13 @@ def style_fig(fig):
   return fig
 
 
-# HEADER UTAMA
+# Header utama
 st.title("VTuber Live Chat Mining & Analytics System")
 st.caption(
     "Dashboard riset untuk memantau sentimen dan topik obrolan penonton"
     " VTuber Indonesia secara langsung maupun berbasis data historis."
 )
 
-# PILIHAN MODE DIPINDAH KE SIDEBAR
 st.sidebar.markdown("### Navigasi Mode Aplikasi")
 mode_pilihan = st.sidebar.radio(
     "Pilih Mode Aplikasi:",
@@ -504,10 +500,9 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           " prediksi sentimen dan pemetaan topik..."
       )
 
-      # ---- DEBUG MODE ----
-      # quiet diset False sementara supaya warning asli dari library
-      # (mis. "chat is disabled", "members-only", dsb.) tercetak ke log
-      # aplikasi (Streamlit Cloud -> Manage app -> Logs), bukan disembunyikan.
+      # quiet=False supaya warning asli dari library (mis. "chat is
+      # disabled", "members-only") tercetak ke log Streamlit Cloud,
+      # bukan disembunyikan.
       try:
         downloader = YouTubeChatDownloader()
         messages = downloader.download_chat(
@@ -570,7 +565,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         with st.expander("Detail traceback (untuk debugging)"):
           st.code(traceback.format_exc())
 
-  # TAMPILAN HASIL ANALISIS REALTIME
+  # Tampilan hasil analisis realtime
   if (
       "real_extracted_data" in st.session_state
       and not st.session_state["real_extracted_data"].empty
@@ -584,8 +579,8 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     unique_users = df_real["Username"].nunique()
     avg_len = df_real["Chat Text"].astype(str).str.len().mean()
 
-    # Parsing timestamp untuk chart berbasis waktu — tidak memaksa gagal
-    # kalau formatnya tidak konsisten dari scraper.
+    # Parsing timestamp untuk chart berbasis waktu (tidak dipaksa gagal
+    # kalau formatnya tidak konsisten dari scraper)
     df_time = df_real.copy()
     df_time["Timestamp_parsed"] = pd.to_datetime(
         df_time["Timestamp"], errors="coerce"
@@ -595,7 +590,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     st.markdown("---")
     st.subheader("Hasil Analisis Data Realtime")
 
-    # Dikumpulkan supaya bisa dibundel jadi satu laporan PDF di bagian bawah.
+    # Dikumpulkan supaya bisa dibundel jadi satu laporan PDF di bagian bawah
     charts_for_pdf = {}
 
     m1, m2, m3, m4 = st.columns(4)
@@ -672,7 +667,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       else:
         st.info("Belum ada kata bersih yang cukup untuk dihitung.")
 
-    # ---------------- DIAGRAM TAMBAHAN ----------------
     st.markdown("<br>", unsafe_allow_html=True)
     section_header("Aktivitas & Partisipasi Penonton")
 
@@ -715,9 +709,8 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           "Timestamp_parsed"
       )
 
-      # Ukuran interval mengikuti durasi total stream, supaya video yang
-      # berjam-jam tidak menghasilkan ratusan titik data yang bikin
-      # grafiknya jadi garis tipis bergerigi.
+      # Interval mengikuti durasi total stream, supaya video yang berjam-jam
+      # tidak menghasilkan ratusan titik data yang bikin grafik bergerigi
       durasi_menit = (
           df_time["Timestamp_parsed"].max() - df_time["Timestamp_parsed"].min()
       ).total_seconds() / 60
@@ -787,11 +780,10 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       return buffer.getvalue()
 
     def _fig_for_print(fig, judul_chart):
-      # Chart di layar pakai tema gelap (teks abu-abu terang di atas latar
-      # transparan). Kalau dipakai langsung untuk export PNG/PDF berlatar
-      # putih, teksnya jadi nyaris tak kelihatan. Di sini dibuat salinan
-      # dengan tema terang khusus untuk dicetak, tanpa mengubah versi yang
-      # tampil di dashboard.
+      # Chart di layar pakai tema gelap. Kalau dipakai langsung untuk
+      # export PNG/PDF berlatar putih, teksnya jadi nyaris tak kelihatan —
+      # jadi dibuat salinan bertema terang khusus cetak, tanpa mengubah
+      # versi yang tampil di dashboard.
       fig_print = go.Figure(fig)
       fig_print.update_layout(
           title=dict(text=judul_chart, x=0.02, xanchor="left",
@@ -928,7 +920,6 @@ else:
         "Pilih VTuber", all_vtubers, default=all_vtubers
     )
 
-    # Kategori stream di sidebar dihapus dan di-default-kan ke semua stream
     all_streams = (
         sorted(df_benchmark[col_stream].dropna().unique().tolist())
         if col_stream in df_benchmark.columns
@@ -951,7 +942,7 @@ else:
           "Analisis Kategori Stream & Korelasi",
       ])
 
-      # TAB 1: RINGKASAN & LDA
+      # TAB 1: Ringkasan & LDA
       with tab1:
         total_chat = len(df_filtered)
         pos_chat = (
@@ -1020,7 +1011,7 @@ else:
         ).round(2)
         st.dataframe(topik_df, use_container_width=True)
 
-      # TAB 2: PROFIL & PERBANDINGAN VTUBER
+      # TAB 2: Profil & Perbandingan VTuber
       with tab2:
         st.markdown("### Profil dan Informasi Dataset 20 VTuber")
         st.caption(
@@ -1028,7 +1019,6 @@ else:
             " performa antar kanal independen."
         )
 
-        # Layout 2 Kolom di Bagian Atas: Kiri untuk Profil & Keterangan, Kanan untuk Tabel 20 VTuber
         col_prof_left, col_prof_right = st.columns([1, 1.4])
 
         with col_prof_left:
@@ -1339,7 +1329,7 @@ else:
           )
           st.plotly_chart(style_fig(fig_vt_lda), use_container_width=True)
 
-      # TAB 3: ANALISIS KATEGORI STREAM & KORELASI
+      # TAB 3: Analisis Kategori Stream & Korelasi
       with tab3:
         st.markdown("### Analisis Komparatif & Korelasi Kategori Stream")
         st.caption(
