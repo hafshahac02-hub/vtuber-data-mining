@@ -1027,7 +1027,7 @@ else:
               Dataset ini terdiri dari **20 VTuber independen** yang aktif di ranah digital Indonesia.
 
               * **Rentang Pengambilan Data:** Februari 2026 hingga Juli 2026.
-              * **Periode Pengerjaan Riset:** Mei hingga Juni 2026.
+              * **Periode Pengerjaan Riset:** Mei hingga Juli 2026.
               * **Fokus Analisis:** Mengukur interaksi penonton, performa live stream, dominasi topik, serta sentimen obrolan real-time berbasis model pembelajaran mesin.
               """)
           st.info(
