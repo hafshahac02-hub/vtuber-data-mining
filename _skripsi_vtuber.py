@@ -257,6 +257,16 @@ def _sederhanakan_topic_category(url_wikipedia):
   return url_wikipedia.rstrip("/").split("/")[-1].replace("_", " ")
 
 
+def _dapatkan_youtube_api_key():
+  # API key disimpan di Streamlit Secrets (Settings > Secrets di dashboard
+  # Streamlit Cloud), TIDAK pernah tampil di UI atau ke pengguna. Kalau
+  # belum diisi, sistem tetap jalan tapi kategori jadi "Tidak Diketahui".
+  try:
+    return st.secrets["YOUTUBE_API_KEY"]
+  except Exception:
+    return None
+
+
 def ambil_kategori_channel_youtube(video_url, api_key):
   """Ambil kategori resmi channel YouTube dari video_url lewat YouTube
   Data API v3 (endpoint videos -> channelId -> channels.topicDetails).
@@ -546,20 +556,6 @@ mode_pilihan = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-# REVISI: pengaturan opsional buat deteksi kategori channel resmi otomatis
-st.sidebar.markdown("### Pengaturan Opsional")
-youtube_api_key = st.sidebar.text_input(
-    "YouTube Data API Key (opsional)",
-    type="password",
-    help=(
-        "Kalau diisi, kategori channel pada mode ekstraksi realtime akan"
-        " dideteksi otomatis dari kategori resmi YouTube (topicCategories),"
-        " bukan dipilih manual. Dapatkan API key gratis di Google Cloud"
-        " Console lalu aktifkan 'YouTube Data API v3'."
-    ),
-)
-st.sidebar.markdown("---")
-
 # ==========================================================
 # MODE 1: EKSTRAKSI LIVE CHAT (REALTIME + ANALYTICS)
 # ==========================================================
@@ -590,24 +586,17 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         " prediksi sentimen untuk sementara memakai nilai bawaan (default)."
     )
 
-  col_url, col_kat = st.columns([3, 1])
-  with col_url:
-    input_url = st.text_input(
-        "URL Video YouTube Stream Replay",
-        placeholder=(
-            "https://www.youtube.com/live/... atau"
-            " https://www.youtube.com/watch?v=..."
-        ),
-    )
-  with col_kat:
-    kategori_pilihan_manual = st.selectbox(
-        "Kategori Channel (fallback manual)",
-        STANDARD_YOUTUBE_CATEGORIES,
-        help=(
-            "Dipakai kalau YouTube API Key di sidebar tidak diisi, atau"
-            " deteksi otomatis gagal."
-        ),
-    )
+  input_url = st.text_input(
+      "URL Video YouTube Stream Replay",
+      placeholder=(
+          "https://www.youtube.com/live/... atau"
+          " https://www.youtube.com/watch?v=..."
+      ),
+  )
+  st.caption(
+      "Kategori channel dideteksi otomatis dari kategori resmi YouTube,"
+      " tidak perlu dipilih manual."
+  )
 
   btn_proses = st.button(
       "Ekstrak Live Chat", type="primary", use_container_width=True
@@ -630,15 +619,15 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       if "?si=" in clean_url:
         clean_url = clean_url.split("?si=")[0]
 
-      # REVISI: coba deteksi kategori channel resmi lewat API dulu,
-      # fallback ke pilihan manual kalau API key kosong / gagal.
-      kategori_final = kategori_pilihan_manual
-      sumber_kategori = "manual"
-      if youtube_api_key:
-        hasil_auto = ambil_kategori_channel_youtube(clean_url, youtube_api_key)
-        if hasil_auto:
-          kategori_final = ", ".join(hasil_auto)
-          sumber_kategori = "otomatis (YouTube API)"
+      # Deteksi kategori channel otomatis dari kategori resmi YouTube.
+      # Sepenuhnya otomatis, tidak ada pilihan manual ke pengguna.
+      youtube_api_key = _dapatkan_youtube_api_key()
+      hasil_auto = (
+          ambil_kategori_channel_youtube(clean_url, youtube_api_key)
+          if youtube_api_key
+          else None
+      )
+      kategori_final = ", ".join(hasil_auto) if hasil_auto else "Tidak Diketahui"
 
       status_box = st.info(
           "Sedang mengambil live chat, membersihkan teksnya, lalu menjalankan"
@@ -698,8 +687,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           st.session_state["real_extracted_data"] = df_res
           st.success(
               f"Berhasil mengekstrak dan menganalisis **{len(df_res):,} baris**"
-              f" live chat. Kategori channel dideteksi secara {sumber_kategori}:"
-              f" **{kategori_final}**."
+              f" live chat. Kategori channel: **{kategori_final}**."
           )
 
       except Exception as e:
