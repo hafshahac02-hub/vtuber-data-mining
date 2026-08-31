@@ -184,6 +184,39 @@ TOPIC_KEYWORD_HINTS = {
 
 
 # ==========================================================
+# REVISI #4: kata kunci topik dihitung LANGSUNG dari data, bukan hardcode
+# ==========================================================
+# INI JAWABAN kenapa expander "Kata Kunci" masih nampilin stopword lama
+# (aku, di, itu, ga, yang, ada) padahal Sastrawi & file dataset sudah
+# dibersihkan: TOPIC_KEYWORD_HINTS di atas itu TEKS YANG DIKETIK MANUAL,
+# bukan hasil hitungan dari data. Jadi walaupun preprocess_text() dan
+# file Excel-nya sudah bersih, teks hint itu TIDAK otomatis ikut berubah
+# sampai ada yang mengetik ulang teksnya secara manual. Fungsi di bawah
+# ini menghitung top-words LANGSUNG dari data yang sedang aktif dipakai
+# (baik hasil ekstraksi realtime maupun dataset benchmark), jadi hasilnya
+# selalu mengikuti data sebenarnya dan tidak akan basi lagi. Dipakai di
+# Tab 1 dashboard benchmark dan di 2 grafik baru mode ekstraksi realtime.
+def top_words_per_topic(df_sumber, kolom_teks, kolom_topik, n_kata=8, min_panjang=2):
+  """Hitung kata paling sering muncul untuk tiap topik, dari kolom teks
+  yang SUDAH bersih (hasil preprocess_text / kolom 'Pesan Bersih...').
+  Return dict: {nama_topik: [(kata, frekuensi), ...]}
+  """
+  hasil = {}
+  if (
+      df_sumber is None
+      or df_sumber.empty
+      or kolom_teks not in df_sumber.columns
+      or kolom_topik not in df_sumber.columns
+  ):
+    return hasil
+  for topik, grup in df_sumber.groupby(kolom_topik):
+    semua_kata = " ".join(grup[kolom_teks].dropna().astype(str)).split()
+    semua_kata = [k for k in semua_kata if len(k) >= min_panjang]
+    hasil[topik] = Counter(semua_kata).most_common(n_kata)
+  return hasil
+
+
+# ==========================================================
 # REVISI #2: word-boundary matching (bukan substring lagi)
 # ==========================================================
 # Sebelumnya pakai "kata in teks" (substring), jadi kata pendek kayak "ka"
@@ -796,6 +829,89 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         st.info("Belum ada kata bersih yang cukup untuk dihitung.")
 
     st.markdown("<br>", unsafe_allow_html=True)
+    section_header("Isi Topik & Kategori Channel")
+
+    c_topik1, c_topik2 = st.columns(2)
+    with c_topik1:
+      st.markdown("##### Isi Kata Kunci per Topik LDA (Chat yang Baru Diekstrak)")
+      st.caption(
+          "Ini buat ngecek beneran isi Topik 1-5 dari chat yang barusan"
+          " diekstrak. Dihitung LANGSUNG dari kolom 'Pesan Bersih"
+          " (Sastrawi)' di atas, bukan teks hint yang diketik manual."
+      )
+      kata_kunci_realtime = top_words_per_topic(
+          df_real, "Pesan Bersih (Sastrawi)", "Topik LDA", n_kata=6
+      )
+      rows_kata_topik = []
+      for _topik, _kata_list in kata_kunci_realtime.items():
+        for _kata, _freq in _kata_list:
+          rows_kata_topik.append(
+              {"Topik LDA": _topik, "Kata": _kata, "Frekuensi": _freq}
+          )
+      if rows_kata_topik:
+        df_kata_topik = pd.DataFrame(rows_kata_topik)
+        fig_kata_topik = px.bar(
+            df_kata_topik,
+            x="Frekuensi",
+            y="Kata",
+            color="Topik LDA",
+            orientation="h",
+            facet_col="Topik LDA",
+            facet_col_wrap=1,
+            height=max(280, 95 * max(len(kata_kunci_realtime), 1)),
+            color_discrete_sequence=COLOR_THEME,
+        )
+        fig_kata_topik.update_yaxes(matches=None, showticklabels=True)
+        fig_kata_topik.for_each_annotation(
+            lambda a: a.update(text=a.text.split("=")[-1])
+        )
+        fig_kata_topik.update_layout(showlegend=False)
+        st.plotly_chart(style_fig(fig_kata_topik), use_container_width=True)
+        charts_for_pdf["Isi Kata Kunci per Topik LDA"] = fig_kata_topik
+      else:
+        st.info("Belum ada kata bersih yang cukup untuk dihitung per topik.")
+
+    with c_topik2:
+      st.markdown(
+          "##### Sebaran Sentimen Berdasarkan Kategori Channel (YouTube API)"
+      )
+      st.caption(
+          "Kategori diambil otomatis dari YouTube Data API saat ekstraksi"
+          " (kolom 'Kategori Channel (YouTube)'), tidak dipilih manual."
+          " Kalau sebuah channel punya lebih dari satu kategori resmi,"
+          " setiap kategorinya dihitung terpisah di grafik ini."
+      )
+      if (df_real["Kategori Channel (YouTube)"] == "Tidak Diketahui").all():
+        st.info(
+            "Kategori channel belum terdeteksi untuk hasil ekstraksi ini."
+            " Kemungkinan penyebab: YOUTUBE_API_KEY belum diisi di"
+            " Streamlit Secrets, atau channel-nya memang tidak punya"
+            " topicCategories di YouTube."
+        )
+      else:
+        df_kategori_explode = df_real.copy()
+        df_kategori_explode["Kategori Channel (YouTube)"] = (
+            df_kategori_explode["Kategori Channel (YouTube)"]
+            .astype(str)
+            .str.split(",")
+        )
+        df_kategori_explode = df_kategori_explode.explode(
+            "Kategori Channel (YouTube)"
+        )
+        df_kategori_explode["Kategori Channel (YouTube)"] = (
+            df_kategori_explode["Kategori Channel (YouTube)"].str.strip()
+        )
+        fig_kat_sent = px.histogram(
+            df_kategori_explode,
+            x="Kategori Channel (YouTube)",
+            color="Prediksi Sentimen",
+            barmode="group",
+            color_discrete_map={"Positif": COLOR_POS, "Negatif": COLOR_NEG},
+        )
+        st.plotly_chart(style_fig(fig_kat_sent), use_container_width=True)
+        charts_for_pdf["Sebaran Sentimen per Kategori Channel"] = fig_kat_sent
+
+    st.markdown("<br>", unsafe_allow_html=True)
     section_header("Aktivitas & Partisipasi Penonton")
 
     c_g5, c_g6 = st.columns(2)
@@ -1091,12 +1207,42 @@ else:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        kata_kunci_topik_aktual = (
+            top_words_per_topic(df_filtered, col_text_raw, col_topik)
+            if col_text_raw and col_text_raw in df_filtered.columns
+            else {}
+        )
         with st.expander(
-            "Kata Kunci Acuan untuk Tiap Topik LDA (klik untuk membuka)",
+            "Kata Kunci AKTUAL Tiap Topik LDA — dihitung dari dataset yang"
+            " sedang dimuat (klik untuk membuka)",
             expanded=False,
         ):
-          for _num, _label in TOPIC_LABELS.items():
-            st.markdown(f"* **{_label}** — *{TOPIC_KEYWORD_HINTS[_num]}*")
+          if kata_kunci_topik_aktual:
+            st.caption(
+                "Daftar di bawah dihitung otomatis dari kolom teks yang"
+                " aktif di file Excel ini, BUKAN teks yang diketik manual."
+                " Jadi begitu file dataset yang sudah bersih (hasil retrain"
+                " Colab) ditimpa ke GitHub, daftar ini otomatis ikut"
+                " berubah tanpa perlu edit kode sama sekali."
+            )
+            for _label, _kata_list in kata_kunci_topik_aktual.items():
+              _teks_kata = (
+                  ", ".join([k for k, _ in _kata_list])
+                  if _kata_list
+                  else "(belum ada data bersih untuk topik ini)"
+              )
+              st.markdown(f"* **{_label}** — *{_teks_kata}*")
+          else:
+            st.warning(
+                "Kolom teks bersih tidak ditemukan di dataset ini (dicari"
+                " lewat nama kolom seperti 'Pesan Bersih', 'clean_text',"
+                " dst), jadi kata kunci aktual belum bisa dihitung."
+                " Menampilkan referensi lama sebagai gantinya — ini masih"
+                " teks hardcode versi sebelum retrain, kemungkinan besar"
+                " sudah tidak sesuai data terbaru:"
+            )
+            for _num, _label in TOPIC_LABELS.items():
+              st.markdown(f"* **{_label}** — *{TOPIC_KEYWORD_HINTS[_num]}*")
 
         col_a, col_b = st.columns(2)
         with col_a:
@@ -1160,12 +1306,11 @@ else:
         with col_prof_right:
           st.markdown("#### Tabel Master 20 VTuber Independen")
           st.caption(
-              "Kolom 'Kategori Konten' di bawah ini masih kategori"
-              " observasi pribadi. Untuk kolom kategori channel RESMI"
-              " (dari YouTube), jalankan fetch_kategori_youtube.py lalu"
-              " gabungkan hasilnya ke file dataset (.xlsx) sebagai kolom"
-              " baru bernama 'Kategori Channel (YouTube)' — kolom itu akan"
-              " otomatis terpakai di seluruh dashboard begitu ada."
+              "Kolom kategori di bawah ini otomatis diambil dari kolom"
+              " kategori channel resmi YouTube yang ada di file dataset"
+              " (data_vtuber_labeled.xlsx), BUKAN kategori observasi"
+              " pribadi lagi. Kalau untuk VTuber tertentu belum ada"
+              " kecocokan di dataset, ditandai jelas sebagai fallback."
           )
           data_20_vtuber = [
               {
@@ -1330,7 +1475,68 @@ else:
               },
           ]
           df_table_20 = pd.DataFrame(data_20_vtuber)
+
+          # REVISI: kolom "Kategori Konten" yang dulu itu observasi PRIBADI
+          # (ditulis manual pas awal riset, sebelum ada masukan penguji).
+          # Sekarang diganti supaya IKUT kategori resmi YouTube yang sudah
+          # ada di file dataset (col_stream), sesuai masukan penguji.
+          # Kalau dataset belum punya kecocokan buat VTuber tertentu, baru
+          # fallback ke observasi manual lama (ditandai jelas di tabelnya).
+          def _normalisasi_nama(teks):
+            return re.sub(r"[^a-z0-9]", "", str(teks).lower())
+
+          def _cari_kategori_resmi(nama_saluran, username):
+            if (
+                df_benchmark.empty
+                or col_vtuber not in df_benchmark.columns
+                or col_stream not in df_benchmark.columns
+            ):
+              return None
+            target_nama = _normalisasi_nama(nama_saluran)
+            target_user = _normalisasi_nama(username)
+            for nilai_vtuber in df_benchmark[col_vtuber].dropna().unique():
+              kandidat = _normalisasi_nama(nilai_vtuber)
+              if not kandidat:
+                continue
+              cocok = (
+                  kandidat in target_nama
+                  or target_nama in kandidat
+                  or kandidat in target_user
+                  or target_user in kandidat
+              )
+              if cocok:
+                subset = df_benchmark.loc[
+                    df_benchmark[col_vtuber] == nilai_vtuber, col_stream
+                ]
+                modus = subset.mode()
+                if not modus.empty:
+                  return modus.iloc[0]
+            return None
+
+          kategori_resmi_list = []
+          for _row in data_20_vtuber:
+            _hasil = _cari_kategori_resmi(
+                _row["Nama Saluran"], _row["Username"]
+            )
+            if _hasil:
+              kategori_resmi_list.append(_hasil)
+            else:
+              kategori_resmi_list.append(
+                  f'{_row["Kategori Konten"]} (belum ada di dataset — fallback observasi manual)'
+              )
+          df_table_20["Kategori Channel (Resmi YouTube)"] = kategori_resmi_list
+          df_table_20 = df_table_20.drop(columns=["Kategori Konten"])
+
           st.dataframe(df_table_20, use_container_width=True, height=350)
+          if not df_benchmark.empty and col_stream not in df_benchmark.columns:
+            st.warning(
+                "File dataset yang sedang dimuat belum punya kolom kategori"
+                " channel resmi YouTube, jadi seluruh baris di atas masih"
+                " memakai fallback observasi manual. Timpa"
+                " `data_vtuber_labeled.xlsx` di GitHub dengan versi yang"
+                " sudah punya kolom 'Kategori Channel (YouTube)' hasil"
+                " fetch_kategori_youtube.py."
+            )
 
         st.markdown("---")
         st.markdown("### Filter Individual 1 VTuber")
