@@ -90,16 +90,32 @@ CUSTOM_STOPWORDS_TAMBAHAN = [
     "udah", "udh", "blm", "belom", "trs", "jd", "jadinya", "biar",
     # kata filler tambahan yang sebelumnya "diselamatkan" demi deteksi
     # topik (sekarang deteksi topik pakai kolom lain, jadi aman dibuang)
-    "lagi", "ka", "kak", "the", "dan", "lah", "dengan", "jangan",
+    "lagi", "ka", "kak", "the", "dan", "lah", "dengan",
     "banget", "bgt", "min", "kk", "cak", "bro", "sist", "guys", "gaes",
     "an", "nan", "wah", "eh", "ehh", "hmm", "hm", "yah", "yaa", "yaah",
+    # daftar stopword baku Bahasa Indonesia (konjungsi, preposisi,
+    # pronomina, kata sandang/penunjuk, partikel) — ditambahkan eksplisit
+    # sebagai jaring pengaman kalau daftar bawaan Sastrawi tidak ke-load
+    # atau kolom "Pesan Bersih" dari file Excel dataset belum bersih dari
+    # kata-kata dasar ini.
+    "atau", "tetapi", "melainkan", "karena", "jika", "walaupun",
+    "sedangkan", "di", "ke", "dari", "pada", "dalam", "oleh", "kepada",
+    "daripada", "saya", "aku", "kamu", "dia", "mereka", "kita", "kami",
+    "ia", "ini", "itu", "tersebut", "sang", "para", "yang", "adakah",
+    "pun", "kah", "andaikata", "saja", "kalian", "adalah", "akan",
+    "ada", "juga", "harus", "bisa", "dapat", "kalau",
+    # CATATAN: "tidak", "jangan", "bukan", "belum" SENGAJA tidak
+    # dimasukkan ke sini meskipun sering dianggap stopword, karena
+    # kata-kata negasi ini penting untuk model sentimen (mis. "tidak
+    # suka" vs "suka" punya makna berlawanan) — membuangnya bisa
+    # merusak akurasi prediksi Naive Bayes.
 ]
 
 
 @st.cache_resource
 def load_sastrawi_tools():
   if not HAS_SASTRAWI:
-    return None, None
+    return None, None, set(CUSTOM_STOPWORDS_TAMBAHAN)
   try:
     stemmer = StemmerFactory().create_stemmer()
 
@@ -110,13 +126,28 @@ def load_sastrawi_tools():
     kamus_stopword = ArrayDictionary(daftar_stopword_gabungan)
     stopword_remover = StopWordRemover(kamus_stopword)
 
-    return stemmer, stopword_remover
+    return stemmer, stopword_remover, set(daftar_stopword_gabungan)
   except Exception as e:
     st.session_state["sastrawi_load_error"] = str(e)
-    return None, None
+    return None, None, set(CUSTOM_STOPWORDS_TAMBAHAN)
 
 
-stemmer, stopword_remover = load_sastrawi_tools()
+stemmer, stopword_remover, STOPWORD_SET_GABUNGAN = load_sastrawi_tools()
+
+
+def bersihkan_ulang_dari_stopword(teks):
+  """Membersihkan ULANG kata-kata stopword dari teks yang sumbernya BUKAN
+  dari preprocess_text() di app ini — misalnya kolom 'Pesan Bersih' yang
+  sudah dihitung sebelumnya di file Excel dataset (hasil proses Colab).
+  Ini jaring pengaman: berapa pun daftar stopword yang dipakai saat file
+  Excel itu dibuat, begitu file dimuat ke app ini kata-kata di
+  STOPWORD_SET_GABUNGAN (termasuk tambahan seperti "aku", "di", "itu",
+  "nya", "yang", "ga", dst) akan tetap dibuang ulang di sini sebelum
+  dipakai untuk grafik kata kunci atau deteksi topik."""
+  if not isinstance(teks, str) or not teks:
+    return ""
+  kata_list = [k for k in teks.split() if k and k not in STOPWORD_SET_GABUNGAN]
+  return " ".join(kata_list)
 
 
 def _normalisasi_dasar(text):
@@ -440,23 +471,45 @@ def section_header(text):
 
 
 # Load dataset benchmark (20 VTuber)
-@st.cache_data
-def load_benchmark_data():
+def _pilih_file_dataset():
+  """Cari file .xlsx yang dipakai sebagai dataset benchmark. Dipisah dari
+  fungsi cache di bawah supaya kita bisa ambil mtime file-nya dulu SEBELUM
+  memutuskan apakah cache masih valid."""
   files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
   if not files:
-    return pd.DataFrame()
-
+    return None
   if "data_vtuber_labeled.xlsx" in files:
-    target_file = "data_vtuber_labeled.xlsx"
+    return "data_vtuber_labeled.xlsx"
   elif "hasil_akhir_analisis_skripsi.xlsx" in files:
-    target_file = "hasil_akhir_analisis_skripsi.xlsx"
+    return "hasil_akhir_analisis_skripsi.xlsx"
   else:
-    target_file = files[0]
-
-  return pd.read_excel(target_file)
+    return files[0]
 
 
-df_benchmark = load_benchmark_data()
+@st.cache_data
+def load_benchmark_data(target_file, _mtime_signature):
+  # REVISI: parameter _mtime_signature (waktu terakhir file dimodifikasi)
+  # dijadikan bagian dari cache key. Sebelumnya fungsi ini tidak punya
+  # argumen sama sekali, jadi begitu file_vtuber_labeled.xlsx ditimpa
+  # dengan versi baru (misal setelah kolom "Kategori Channel (YouTube)"
+  # ditambahkan), Streamlit tetap menyajikan data LAMA dari cache sampai
+  # cache dibersihkan manual. Dengan mtime di sini, begitu file berubah
+  # ukurannya/waktunya, cache otomatis dianggap basi dan file dibaca ulang.
+  if not target_file:
+    return pd.DataFrame()
+  df = pd.read_excel(target_file)
+  # Bersihkan nama kolom dari spasi berlebih di depan/belakang, supaya
+  # pencocokan nama kolom (find_col) tidak meleset gara-gara whitespace
+  # tersembunyi dari proses ekspor Excel/Colab.
+  df.columns = df.columns.astype(str).str.strip()
+  return df
+
+
+_target_file_dataset = _pilih_file_dataset()
+_mtime_dataset = (
+    os.path.getmtime(_target_file_dataset) if _target_file_dataset else 0
+)
+df_benchmark = load_benchmark_data(_target_file_dataset, _mtime_dataset)
 
 
 # Deteksi kolom & pemetaan topik otomatis (anti-"General")
@@ -505,6 +558,27 @@ col_text_raw = find_col(
     ],
 )
 
+# ==========================================================
+# REVISI: bersihkan ULANG kolom teks dari dataset Excel di dalam app ini
+# ==========================================================
+# Kolom "Pesan Bersih" yang ada di file Excel itu hasil proses di Colab,
+# jadi daftar stopword yang dipakai saat itu belum tentu sama/selengkap
+# STOPWORD_SET_GABUNGAN yang ada di app ini sekarang. Supaya kata kunci
+# & deteksi topik di dashboard SELALU konsisten dengan daftar stopword
+# terbaru (tidak tergantung apakah file Excel sudah ditimpa versi bersih
+# yang baru atau belum), teks dari kolom itu dibersihkan ULANG di sini
+# lewat bersihkan_ulang_dari_stopword() sebelum dipakai di bagian mana pun.
+col_text_bersih_app = None
+if col_text_raw and col_text_raw in df_benchmark.columns:
+  col_text_bersih_app = "Pesan Bersih (Stopword App Terbaru)"
+  df_benchmark[col_text_bersih_app] = (
+      df_benchmark[col_text_raw]
+      .astype(str)
+      .str.lower()
+      .str.replace(r"[^a-z\s]", "", regex=True)
+      .apply(bersihkan_ulang_dari_stopword)
+  )
+
 # Map nomor topik LDA ke label deskriptif
 TOPIC_MAP = {}
 for _num, _label in TOPIC_LABELS.items():
@@ -533,14 +607,12 @@ if not df_benchmark.empty:
   if mask_invalid.any():
     # REVISI: dipetakan ulang pakai TOPIC_SIGNAL_KEYWORDS yang sama
     # dengan deteksi_topik_realtime(), jadi label topik konsisten antara
-    # mode ekstraksi realtime dan dashboard benchmark. Prioritaskan
-    # kolom teks yang SUDAH bersih (nama kolom mengandung "pesan bersih"
-    # atau "clean_text") supaya tidak ikut kebawa kata filler mentah;
-    # kalau dataset belum punya kolom bersih, baru fallback ke kolom
-    # teks mentah yang ditemukan (col_text_raw).
-    col_teks_untuk_klasifikasi = find_col(
-        df_benchmark, ["pesan bersih", "clean_text"], None
-    ) or col_text_raw
+    # mode ekstraksi realtime dan dashboard benchmark. Pakai
+    # col_text_bersih_app (hasil bersihkan_ulang_dari_stopword) supaya
+    # tidak kebawa kata filler dari kolom "Pesan Bersih" versi Excel yang
+    # belum tentu bersih; kata kunci topik (halo, otsu, wkwk, dst) sendiri
+    # tidak ikut hilang karena kata-kata itu bukan stopword.
+    col_teks_untuk_klasifikasi = col_text_bersih_app or col_text_raw
 
     if col_teks_untuk_klasifikasi and col_teks_untuk_klasifikasi in df_benchmark.columns:
       t_series = df_benchmark[col_teks_untuk_klasifikasi].astype(str).str.lower()
@@ -1176,6 +1248,18 @@ else:
     )
   else:
     st.sidebar.markdown("### Filter Panel Global")
+    with st.sidebar.expander("Info kolom terdeteksi (debug)", expanded=False):
+      st.caption(
+          f"Kolom VTuber: `{col_vtuber}`\n\n"
+          f"Kolom kategori channel: `{col_stream}`\n\n"
+          f"Kolom sentimen: `{col_sentimen}`\n\n"
+          f"Kolom teks mentah: `{col_text_raw}`\n\n"
+          f"Kolom teks bersih (app): `{col_text_bersih_app}`\n\n"
+          "Kalau kolom kategori channel di atas masih nunjuk ke kolom"
+          " observasi lama (bukan 'Kategori Channel (YouTube)'), berarti"
+          " nama kolom di file Excel belum cocok/berubah — cek lagi nama"
+          " kolomnya di file dataset."
+      )
     all_vtubers = (
         sorted(df_benchmark[col_vtuber].dropna().unique().tolist())
         if col_vtuber in df_benchmark.columns
@@ -1235,8 +1319,8 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
 
         kata_kunci_topik_aktual = (
-            top_words_per_topic(df_filtered, col_text_raw, col_topik)
-            if col_text_raw and col_text_raw in df_filtered.columns
+            top_words_per_topic(df_filtered, col_text_bersih_app, col_topik)
+            if col_text_bersih_app and col_text_bersih_app in df_filtered.columns
             else {}
         )
         with st.expander(
@@ -1247,10 +1331,13 @@ else:
           if kata_kunci_topik_aktual:
             st.caption(
                 "Daftar di bawah dihitung otomatis dari kolom teks yang"
-                " aktif di file Excel ini, BUKAN teks yang diketik manual."
-                " Jadi begitu file dataset yang sudah bersih (hasil retrain"
-                " Colab) ditimpa ke GitHub, daftar ini otomatis ikut"
-                " berubah tanpa perlu edit kode sama sekali."
+                " aktif di file Excel ini, lalu dibersihkan ULANG dari"
+                " stopword (aku, di, itu, dan, yang, nya, ga, dst) pakai"
+                " daftar stopword terbaru di app ini — jadi tidak"
+                " tergantung apakah hasil pembersihan di Colab sudah"
+                " sempurna atau belum. Bukan teks yang diketik manual;"
+                " begitu file dataset ditimpa ke GitHub, daftar ini"
+                " otomatis ikut berubah tanpa perlu edit kode sama sekali."
             )
             for _label, _kata_list in kata_kunci_topik_aktual.items():
               _teks_kata = (
@@ -1261,14 +1348,13 @@ else:
               st.markdown(f"* **{_label}** — *{_teks_kata}*")
           else:
             st.warning(
-                "Kolom teks bersih ('Pesan Bersih'/'clean_text') tidak"
+                "Kolom teks ('Pesan Bersih'/'clean_text'/'Chat Text') tidak"
                 " ditemukan di dataset ini, jadi kata kunci aktual belum"
-                " bisa dihitung. Timpa file dataset dengan versi yang"
-                " sudah punya kolom teks bersih (hasil preprocess_text)"
-                " supaya daftar kata kunci di sini bisa tampil — tidak"
-                " ada lagi teks contoh/hardcode yang ditampilkan sebagai"
-                " pengganti, untuk menghindari kata yang sudah tidak"
-                " relevan dengan data sebenarnya."
+                " bisa dihitung. Pastikan file dataset punya salah satu"
+                " kolom teks tersebut — tidak ada lagi teks contoh/"
+                " hardcode yang ditampilkan sebagai pengganti, untuk"
+                " menghindari kata yang sudah tidak relevan dengan data"
+                " sebenarnya."
             )
 
         col_a, col_b = st.columns(2)
