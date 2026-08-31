@@ -13,27 +13,25 @@ import requests
 import streamlit as st
 
 try:
-  from PIL import Image  # noqa: F401
+  from PIL import Image
 
   HAS_PIL = True
 except Exception:
   HAS_PIL = False
 
 try:
-  import kaleido  # noqa: F401
+  import kaleido
 
   HAS_KALEIDO = True
 except Exception:
   HAS_KALEIDO = False
 
-# Konfigurasi halaman
 st.set_page_config(
     page_title="VTuber Analytics & Live Chat Extractor",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Import scraper & Sastrawi
 try:
   from yt_chat_downloader import YouTubeChatDownloader
 
@@ -54,7 +52,6 @@ except Exception:
   HAS_SASTRAWI = False
 
 
-# Load model machine learning (.pkl) hasil latihan dataset 20 VTuber
 @st.cache_resource
 def load_ml_model():
   try:
@@ -68,47 +65,21 @@ def load_ml_model():
 model_nb, tfidf_vec = load_ml_model()
 
 
-# ==========================================================
-# REVISI #1 (v2): STOPWORD BUG — dipisah dari deteksi topik
-# ==========================================================
-# Dulu ada kata-kata (mis. "lagi", "ka", "kak", "the") yang SENGAJA tidak
-# dimasukkan ke daftar stopword karena dipakai sebagai sinyal deteksi
-# topik di deteksi_topik_realtime(). Efek sampingnya: kata-kata itu jadi
-# "nyelip" terus di kolom Pesan Bersih dan muncul sebagai kata kunci yang
-# tidak informatif di grafik ("lagi", "ka", "the", dst).
-#
-# Sekarang deteksi topik TIDAK lagi bergantung pada kolom Pesan Bersih —
-# ada kolom terpisah khusus untuk deteksi (lihat normalize_untuk_deteksi()
-# & deteksi_topik_realtime() di bawah) yang tidak melalui penghapusan
-# stopword sama sekali. Jadi di sini daftar stopword BEBAS dilengkapi
-# dengan kata filler apa pun tanpa takut merusak deteksi topik.
 CUSTOM_STOPWORDS_TAMBAHAN = [
     "ga", "gak", "ngga", "nggak", "gk", "yg", "krn", "karna", "tp",
     "dgn", "dg", "utk", "sm", "nih", "sih", "deh", "dong", "kok",
     "loh", "lho", "ya", "iya", "oke", "ok", "aja", "doang", "nya",
     "kan", "kali", "gitu", "gini", "gimana", "gmn", "emang", "emg",
     "udah", "udh", "blm", "belom", "trs", "jd", "jadinya", "biar",
-    # kata filler tambahan yang sebelumnya "diselamatkan" demi deteksi
-    # topik (sekarang deteksi topik pakai kolom lain, jadi aman dibuang)
     "lagi", "ka", "kak", "the", "dan", "lah", "dengan",
     "banget", "bgt", "min", "kk", "cak", "bro", "sist", "guys", "gaes",
     "an", "nan", "wah", "eh", "ehh", "hmm", "hm", "yah", "yaa", "yaah",
-    # daftar stopword baku Bahasa Indonesia (konjungsi, preposisi,
-    # pronomina, kata sandang/penunjuk, partikel) — ditambahkan eksplisit
-    # sebagai jaring pengaman kalau daftar bawaan Sastrawi tidak ke-load
-    # atau kolom "Pesan Bersih" dari file Excel dataset belum bersih dari
-    # kata-kata dasar ini.
     "atau", "tetapi", "melainkan", "karena", "jika", "walaupun",
     "sedangkan", "di", "ke", "dari", "pada", "dalam", "oleh", "kepada",
     "daripada", "saya", "aku", "kamu", "dia", "mereka", "kita", "kami",
     "ia", "ini", "itu", "tersebut", "sang", "para", "yang", "adakah",
     "pun", "kah", "andaikata", "saja", "kalian", "adalah", "akan",
     "ada", "juga", "harus", "bisa", "dapat", "kalau",
-    # CATATAN: "tidak", "jangan", "bukan", "belum" SENGAJA tidak
-    # dimasukkan ke sini meskipun sering dianggap stopword, karena
-    # kata-kata negasi ini penting untuk model sentimen (mis. "tidak
-    # suka" vs "suka" punya makna berlawanan) — membuangnya bisa
-    # merusak akurasi prediksi Naive Bayes.
 ]
 
 
@@ -136,14 +107,6 @@ stemmer, stopword_remover, STOPWORD_SET_GABUNGAN = load_sastrawi_tools()
 
 
 def bersihkan_ulang_dari_stopword(teks):
-  """Membersihkan ULANG kata-kata stopword dari teks yang sumbernya BUKAN
-  dari preprocess_text() di app ini — misalnya kolom 'Pesan Bersih' yang
-  sudah dihitung sebelumnya di file Excel dataset (hasil proses Colab).
-  Ini jaring pengaman: berapa pun daftar stopword yang dipakai saat file
-  Excel itu dibuat, begitu file dimuat ke app ini kata-kata di
-  STOPWORD_SET_GABUNGAN (termasuk tambahan seperti "aku", "di", "itu",
-  "nya", "yang", "ga", dst) akan tetap dibuang ulang di sini sebelum
-  dipakai untuk grafik kata kunci atau deteksi topik."""
   if not isinstance(teks, str) or not teks:
     return ""
   kata_list = [k for k in teks.split() if k and k not in STOPWORD_SET_GABUNGAN]
@@ -151,11 +114,6 @@ def bersihkan_ulang_dari_stopword(teks):
 
 
 def _normalisasi_dasar(text):
-  """Lowercase + buang URL + buang karakter non-huruf. Tidak membuang
-  stopword dan tidak stemming — dipakai sebagai basis untuk dua kolom
-  turunan yang beda tujuan: preprocess_text() (Pesan Bersih, untuk
-  model & grafik kata kunci) dan normalize_untuk_deteksi() (khusus
-  deteksi topik, lihat catatan di bawah)."""
   if not text or not isinstance(text, str):
     return ""
   text = text.lower()
@@ -165,14 +123,6 @@ def _normalisasi_dasar(text):
 
 
 def normalize_untuk_deteksi(text):
-  """Teks yang dipakai KHUSUS untuk deteksi topik (deteksi_topik_realtime),
-  BUKAN untuk ditampilkan atau dijadikan input model. Sengaja tidak
-  melalui penghapusan stopword sama sekali (hanya lower + buang URL/
-  simbol + stemming ringan), supaya kata sinyal topik seperti "otsu",
-  "wkwk", "selamat", "dadah", dst selalu bisa ketemu apa pun daftar
-  stopword yang dipakai untuk kolom 'Pesan Bersih'. Dengan begitu kolom
-  Pesan Bersih bebas dibersihkan total tanpa mengorbankan akurasi
-  deteksi topik."""
   teks = _normalisasi_dasar(text)
   if not teks:
     return ""
@@ -185,13 +135,6 @@ def normalize_untuk_deteksi(text):
 
 
 def preprocess_text(text):
-  """Menghasilkan kolom 'Pesan Bersih (Sastrawi)': teks yang SUDAH bersih
-  total dari stopword (termasuk kata filler seperti "ka", "lagi", "the")
-  dan sudah di-stem. Kolom inilah yang dipakai untuk: (1) input model
-  Naive Bayes, (2) grafik 10 Kata Kunci Terbanyak, (3) grafik Isi Kata
-  Kunci per Topik. Kolom 'Chat Text' (mentah, apa adanya, belum
-  dibersihkan) HANYA dipakai untuk keperluan tampilan asli/panjang
-  pesan, bukan untuk pemrosesan analitik."""
   text = _normalisasi_dasar(text)
   if not text:
     return ""
@@ -222,7 +165,6 @@ def preprocess_text(text):
   return text.strip()
 
 
-# Prediksi sentimen Naive Bayes (.pkl)
 def prediksi_sentimen_ml(teks_bersih, teks_asli):
   input_text = teks_bersih if teks_bersih else str(teks_asli).lower()
   if model_nb and tfidf_vec:
@@ -235,10 +177,6 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
   return "Positif"
 
 
-# ==========================================================
-# Label topik LDA (revisi) — dipetakan dari kata kunci paling sering
-# muncul per topik, sesuai kategori final yang diminta:
-# ==========================================================
 TOPIC_LABELS = {
     1: "Topik 1: Sapaan & Absen Awal Streaming",
     2: "Topik 2: Pamitan & Penutup Streaming",
@@ -247,33 +185,23 @@ TOPIC_LABELS = {
     5: "Topik 5: Obrolan Bebas / Lain-lain",
 }
 
-# ==========================================================
-# Kata kunci sinyal per topik — dipakai oleh deteksi_topik_realtime()
-# dan blok klasifikasi fallback dataset benchmark di bawah. Daftar ini
-# HANYA berisi kata yang benar-benar bermakna untuk kategori masing-
-# masing (tidak ada stopword/kata filler kosong makna seperti "ka",
-# "lagi", "the", dst — kata-kata itu sudah dibuang dari kolom Pesan
-# Bersih lewat CUSTOM_STOPWORDS_TAMBAHAN).
-# Urutan pengecekan di bawah ini penting: dicek dari topik paling
-# spesifik ke paling umum, dan topik 5 (Obrolan Bebas/Lain-lain) selalu
-# jadi fallback terakhir kalau tidak ada kata kunci topik 1-4 yang cocok.
 TOPIC_SIGNAL_KEYWORDS = {
-    1: [  # Sapaan & Absen Awal Streaming
+    1: [
         "halo", "hai", "haii", "hallo", "met", "selamat", "datang",
         "welcome", "pagi", "siang", "sore", "malam", "hadir", "absen",
         "nyimak", "nonton", "mulai", "live",
     ],
-    2: [  # Pamitan & Penutup Streaming
+    2: [
         "otsu", "otsukare", "otsukaresama", "dadah", "bubye", "bye",
         "sampaijumpa", "udahan", "selesai", "cape", "capek", "pulang",
         "tidur", "istirahat", "pamit", "gnight", "goodnight", "off dulu",
     ],
-    3: [  # Pujian & Dukungan ke Streamer
+    3: [
         "keren", "mantap", "top", "gg", "hebat", "jago", "semangat",
         "support", "cakep", "kece", "juara", "salut", "bagus", "apik",
         "bangga", "makasih", "terimakasih", "terima kasih",
     ],
-    4: [  # Candaan & Reaksi Spontan
+    4: [
         "wkwk", "wkwkwk", "wkwkwkwk", "haha", "hahaha", "xixi", "lol",
         "ngakak", "kocak", "lucu", "astaga", "anjay", "gokil", "receh",
         "kaget",
@@ -302,13 +230,6 @@ def _match_any_kata(teks, daftar_kata):
 
 
 def deteksi_topik_realtime(teks_untuk_deteksi):
-  """Klasifikasi topik berbasis kata kunci (TOPIC_SIGNAL_KEYWORDS).
-  PENTING: parameter di sini HARUS teks hasil normalize_untuk_deteksi(),
-  BUKAN kolom 'Pesan Bersih (Sastrawi)' — supaya kata sinyal seperti
-  "otsu"/"wkwk"/"selamat" tidak ikut hilang meskipun kolom Pesan Bersih
-  sendiri sudah dibersihkan total dari kata filler. Kalau tidak ada satu
-  pun kata kunci topik 1-4 yang cocok, otomatis masuk Topik 5 (Obrolan
-  Bebas/Lain-lain) sebagai kategori sisa/paling umum."""
   if not teks_untuk_deteksi:
     return TOPIC_LABELS[5]
   t = str(teks_untuk_deteksi).lower()
@@ -395,7 +316,6 @@ def ambil_kategori_channel_youtube(video_url, api_key):
     return None
 
 
-# Styling CSS UI
 st.markdown(
     """
     <style>
@@ -445,6 +365,22 @@ st.markdown(
         margin-bottom: 10px;
     }
 
+    .kategori-chip-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+    }
+    .kategori-chip {
+        display: inline-block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1.5px solid rgba(99, 102, 241, 0.35);
+        border-radius: 999px;
+        padding: 5px 14px;
+    }
+
     div[data-testid="stExpander"] { border-radius: 12px; border-color: rgba(255,255,255,0.08); }
     div[data-testid="stTabs"] button { font-weight: 600; }
     </style>
@@ -470,11 +406,7 @@ def section_header(text):
   st.markdown(f'<div class="section-chip">{text}</div>', unsafe_allow_html=True)
 
 
-# Load dataset benchmark (20 VTuber)
 def _pilih_file_dataset():
-  """Cari file .xlsx yang dipakai sebagai dataset benchmark. Dipisah dari
-  fungsi cache di bawah supaya kita bisa ambil mtime file-nya dulu SEBELUM
-  memutuskan apakah cache masih valid."""
   files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
   if not files:
     return None
@@ -488,19 +420,9 @@ def _pilih_file_dataset():
 
 @st.cache_data
 def load_benchmark_data(target_file, _mtime_signature):
-  # REVISI: parameter _mtime_signature (waktu terakhir file dimodifikasi)
-  # dijadikan bagian dari cache key. Sebelumnya fungsi ini tidak punya
-  # argumen sama sekali, jadi begitu file_vtuber_labeled.xlsx ditimpa
-  # dengan versi baru (misal setelah kolom "Kategori Channel (YouTube)"
-  # ditambahkan), Streamlit tetap menyajikan data LAMA dari cache sampai
-  # cache dibersihkan manual. Dengan mtime di sini, begitu file berubah
-  # ukurannya/waktunya, cache otomatis dianggap basi dan file dibaca ulang.
   if not target_file:
     return pd.DataFrame()
   df = pd.read_excel(target_file)
-  # Bersihkan nama kolom dari spasi berlebih di depan/belakang, supaya
-  # pencocokan nama kolom (find_col) tidak meleset gara-gara whitespace
-  # tersembunyi dari proses ekspor Excel/Colab.
   df.columns = df.columns.astype(str).str.strip()
   return df
 
@@ -512,7 +434,6 @@ _mtime_dataset = (
 df_benchmark = load_benchmark_data(_target_file_dataset, _mtime_dataset)
 
 
-# Deteksi kolom & pemetaan topik otomatis (anti-"General")
 def find_col(df, possible_names, default=None):
   if df.empty:
     return default
@@ -523,21 +444,6 @@ def find_col(df, possible_names, default=None):
   return default
 
 
-# ==========================================================
-# REVISI: pisah kategori channel yang isinya gabungan beberapa kategori
-# ==========================================================
-# Satu channel YouTube bisa punya lebih dari satu topicCategory resmi,
-# jadi nilainya di kolom "Kategori Channel (YouTube)" berupa gabungan
-# dipisah koma, misal "Role-playing video game, Video game culture".
-# Kalau dipakai langsung di grafik/tabel pengelompokan, tiap KOMBINASI
-# unik dianggap kategori sendiri-sendiri, jadi channel yang sama-sama
-# punya "Role-playing video game" jadi kepisah kelompoknya hanya karena
-# kombinasi lengkapnya beda. Fungsi ini memecah nilainya jadi satu baris
-# per kategori individual, supaya channel-channel dengan kategori yang
-# sama tetap ngumpul jadi satu kelompok di grafik, walaupun kombinasi
-# kategori lengkap masing-masing beda. Baris dengan kategori kosong,
-# NaN, atau "Tidak Diketahui" dibuang sepenuhnya (tidak ditampilkan
-# sebagai kategori tersendiri).
 _KATEGORI_KOSONG_PATTERN = {
     "", "nan", "none", "null", "-", "tidak diketahui", "unknown",
     "tidak diketahui,", "kosong",
@@ -563,9 +469,6 @@ col_vtuber = find_col(
 col_stream = find_col(
     df_benchmark,
     [
-        # nama kolom resmi diprioritaskan lebih dulu supaya grafik
-        # kategori SELALU narik dari kolom kategori channel YouTube,
-        # bukan tercampur/ke-fallback diam-diam ke kolom lain.
         "kategori channel (youtube)", "kategori channel", "channel category",
         "official category", "kategori resmi", "topic categor",
         "kategori", "category", "stream", "type",
@@ -592,16 +495,6 @@ col_text_raw = find_col(
     ],
 )
 
-# ==========================================================
-# REVISI: bersihkan ULANG kolom teks dari dataset Excel di dalam app ini
-# ==========================================================
-# Kolom "Pesan Bersih" yang ada di file Excel itu hasil proses di Colab,
-# jadi daftar stopword yang dipakai saat itu belum tentu sama/selengkap
-# STOPWORD_SET_GABUNGAN yang ada di app ini sekarang. Supaya kata kunci
-# & deteksi topik di dashboard SELALU konsisten dengan daftar stopword
-# terbaru (tidak tergantung apakah file Excel sudah ditimpa versi bersih
-# yang baru atau belum), teks dari kolom itu dibersihkan ULANG di sini
-# lewat bersihkan_ulang_dari_stopword() sebelum dipakai di bagian mana pun.
 col_text_bersih_app = None
 if col_text_raw and col_text_raw in df_benchmark.columns:
   col_text_bersih_app = "Pesan Bersih (Stopword App Terbaru)"
@@ -613,7 +506,6 @@ if col_text_raw and col_text_raw in df_benchmark.columns:
       .apply(bersihkan_ulang_dari_stopword)
   )
 
-# Map nomor topik LDA ke label deskriptif
 TOPIC_MAP = {}
 for _num, _label in TOPIC_LABELS.items():
   TOPIC_MAP[_num] = _label
@@ -639,13 +531,6 @@ if not df_benchmark.empty:
   ].astype(str).str.lower().isin(["general", "nan", "", "none", "null"])
 
   if mask_invalid.any():
-    # REVISI: dipetakan ulang pakai TOPIC_SIGNAL_KEYWORDS yang sama
-    # dengan deteksi_topik_realtime(), jadi label topik konsisten antara
-    # mode ekstraksi realtime dan dashboard benchmark. Pakai
-    # col_text_bersih_app (hasil bersihkan_ulang_dari_stopword) supaya
-    # tidak kebawa kata filler dari kolom "Pesan Bersih" versi Excel yang
-    # belum tentu bersih; kata kunci topik (halo, otsu, wkwk, dst) sendiri
-    # tidak ikut hilang karena kata-kata itu bukan stopword.
     col_teks_untuk_klasifikasi = col_text_bersih_app or col_text_raw
 
     if col_teks_untuk_klasifikasi and col_teks_untuk_klasifikasi in df_benchmark.columns:
@@ -659,8 +544,6 @@ if not df_benchmark.empty:
       c3 = t_series.str.contains(_buat_pola(TOPIC_SIGNAL_KEYWORDS[3]), regex=True)
       c4 = t_series.str.contains(_buat_pola(TOPIC_SIGNAL_KEYWORDS[4]), regex=True)
 
-      # Topik 5 (Obrolan Bebas/Lain-lain) jadi kategori sisa untuk baris
-      # yang tidak cocok kata kunci topik 1-4 mana pun.
       fallback = pd.Series(TOPIC_LABELS[5], index=df_benchmark.index)
       fallback[c4] = TOPIC_LABELS[4]
       fallback[c3] = TOPIC_LABELS[3]
@@ -687,6 +570,24 @@ COLOR_THEME = [
     "#14B8A6",
 ]
 
+KATEGORI_COLOR_PALETTE = (
+    px.colors.qualitative.Alphabet
+    + px.colors.qualitative.Dark24
+    + px.colors.qualitative.Light24
+)
+
+
+def get_kategori_color_map(df, kolom_kategori):
+  if df is None or df.empty or kolom_kategori not in df.columns:
+    return {}
+  daftar_kategori_unik = sorted(
+      df[kolom_kategori].dropna().astype(str).unique().tolist()
+  )
+  return {
+      kat: KATEGORI_COLOR_PALETTE[i % len(KATEGORI_COLOR_PALETTE)]
+      for i, kat in enumerate(daftar_kategori_unik)
+  }
+
 
 def style_fig(fig):
   fig.update_layout(
@@ -701,7 +602,6 @@ def style_fig(fig):
   return fig
 
 
-# Header utama
 st.title("VTuber Live Chat Mining & Analytics System")
 st.caption(
     "Dashboard riset untuk memantau sentimen dan topik obrolan penonton"
@@ -719,9 +619,6 @@ mode_pilihan = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-# ==========================================================
-# MODE 1: EKSTRAKSI LIVE CHAT (REALTIME + ANALYTICS)
-# ==========================================================
 if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
   st.markdown(
       """
@@ -757,8 +654,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       ),
   )
   st.caption(
-      "Kategori channel dideteksi otomatis dari kategori resmi YouTube,"
-      " tidak perlu dipilih manual."
+      "Kategori channel dideteksi otomatis dari kategori resmi YouTube."
   )
 
   btn_proses = st.button(
@@ -808,10 +704,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           raw_message_count += 1
           komentar_asli = msg.get("comment", "")
           if komentar_asli:
-            # Pesan Bersih (Sastrawi) -> dipakai utk model sentimen &
-            # grafik kata kunci. Teks deteksi (tanpa stopword-stripping)
-            # -> khusus dipakai utk klasifikasi topik, lihat catatan di
-            # normalize_untuk_deteksi().
             clean_text = preprocess_text(komentar_asli)
             teks_deteksi = normalize_untuk_deteksi(komentar_asli)
             sentiment = prediksi_sentimen_ml(clean_text, komentar_asli)
@@ -862,7 +754,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         with st.expander("Detail traceback (untuk debugging)"):
           st.code(traceback.format_exc())
 
-  # Tampilan hasil analisis realtime
   if (
       "real_extracted_data" in st.session_state
       and not st.session_state["real_extracted_data"].empty
@@ -970,7 +861,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       st.caption(
           "Ini buat ngecek beneran isi Topik 1-5 dari chat yang barusan"
           " diekstrak. Dihitung LANGSUNG dari kolom 'Pesan Bersih"
-          " (Sastrawi)' di atas, bukan teks hint yang diketik manual."
+          " (Sastrawi)' di atas."
       )
       kata_kunci_realtime = top_words_per_topic(
           df_real, "Pesan Bersih (Sastrawi)", "Topik LDA", n_kata=6
@@ -1010,7 +901,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       )
       st.caption(
           "Kategori diambil otomatis dari YouTube Data API saat ekstraksi"
-          " (kolom 'Kategori Channel (YouTube)'), tidak dipilih manual."
+          " (kolom 'Kategori Channel (YouTube)')."
           " Kalau sebuah channel punya lebih dari satu kategori resmi,"
           " setiap kategorinya dihitung terpisah di grafik ini."
       )
@@ -1270,9 +1161,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
               use_container_width=True,
           )
 
-# ==========================================================
-# MODE 2: DASHBOARD BENCHMARK DATASET (20 VTUBER)
-# ==========================================================
 else:
   if df_benchmark.empty:
     st.error("File dataset benchmark (.xlsx) tidak ditemukan di repositori.")
@@ -1325,7 +1213,6 @@ else:
           "Analisis Kategori Channel & Korelasi",
       ])
 
-      # TAB 1: Ringkasan & LDA
       with tab1:
         total_chat = len(df_filtered)
         pos_chat = (
@@ -1415,7 +1302,6 @@ else:
         ).round(2)
         st.dataframe(topik_df, use_container_width=True)
 
-      # TAB 2: Profil & Perbandingan VTuber
       with tab2:
         st.markdown("### Profil dan Informasi Dataset 20 VTuber")
         st.caption(
@@ -1652,7 +1538,7 @@ else:
               kategori_resmi_list.append(_hasil)
             else:
               kategori_resmi_list.append(
-                  f'{_row["Kategori Konten"]} (belum ada di dataset, fallback observasi manual)'
+                  f'{_row["Kategori Konten"]} (belum ada di dataset, fallback observasi)'
               )
           df_table_20["Kategori Channel (Resmi YouTube)"] = kategori_resmi_list
           df_table_20 = df_table_20.drop(columns=["Kategori Konten"])
@@ -1662,7 +1548,7 @@ else:
             st.warning(
                 "File dataset yang sedang dimuat belum punya kolom kategori"
                 " channel resmi YouTube, jadi seluruh baris di atas masih"
-                " memakai fallback observasi manual. Timpa"
+                " memakai fallback observasi. Timpa"
                 " `data_vtuber_labeled.xlsx` di GitHub dengan versi yang"
                 " sudah punya kolom 'Kategori Channel (YouTube)' hasil"
                 " fetch_kategori_youtube.py."
@@ -1687,15 +1573,37 @@ else:
           with p1:
             st.markdown(f"##### Kategori Channel ({selected_single_vt})")
             if col_stream in df_single.columns:
-              fig_single_cat = px.pie(
-                  explode_kategori_channel(df_single, col_stream),
-                  names=col_stream,
-                  hole=0.55,
-                  color_discrete_sequence=COLOR_THEME,
+              df_single_exploded = explode_kategori_channel(
+                  df_single, col_stream
               )
-              st.plotly_chart(
-                  style_fig(fig_single_cat), use_container_width=True
+              daftar_kategori_vt = (
+                  df_single_exploded[col_stream]
+                  .dropna()
+                  .astype(str)
+                  .unique()
+                  .tolist()
               )
+              warna_kategori_vt = get_kategori_color_map(
+                  df_single_exploded, col_stream
+              )
+              if daftar_kategori_vt:
+                chip_html = "".join(
+                    f'<span class="kategori-chip" style="border-color:'
+                    f'{warna_kategori_vt.get(kat, "#6366F1")}; color:'
+                    f'{warna_kategori_vt.get(kat, "#6366F1")};">{kat}</span>'
+                    for kat in daftar_kategori_vt
+                )
+                st.markdown(
+                    f'<div class="kategori-chip-wrap">{chip_html}</div>',
+                    unsafe_allow_html=True,
+                )
+                st.caption(
+                    "Channel ini berlabel kategori resmi YouTube di atas."
+                    " Bukan grafik proporsi/dominasi, karena YouTube tidak"
+                    " memberi bobot antar kategori pada satu channel."
+                )
+              else:
+                st.info("Kategori channel belum terdeteksi untuk VTuber ini.")
 
           with p2:
             st.markdown(f"##### Topik LDA Dominan ({selected_single_vt})")
@@ -1776,12 +1684,17 @@ else:
           with col_v2:
             st.markdown("##### Sebaran Kategori Channel per VTuber")
             if col_stream in df_filtered.columns:
+              df_vt_cat_exploded = explode_kategori_channel(
+                  df_filtered, col_stream
+              )
               fig_vt_cat = px.histogram(
-                  explode_kategori_channel(df_filtered, col_stream),
+                  df_vt_cat_exploded,
                   x=col_vtuber,
                   color=col_stream,
                   barmode="stack",
-                  color_discrete_sequence=COLOR_THEME,
+                  color_discrete_map=get_kategori_color_map(
+                      df_vt_cat_exploded, col_stream
+                  ),
               )
               st.plotly_chart(style_fig(fig_vt_cat), use_container_width=True)
 
@@ -1795,7 +1708,6 @@ else:
           )
           st.plotly_chart(style_fig(fig_vt_lda), use_container_width=True)
 
-      # TAB 3: Analisis Kategori Channel & Korelasi
       with tab3:
         st.markdown("### Analisis Komparatif & Korelasi Kategori Channel")
         st.caption(
@@ -1807,11 +1719,6 @@ else:
             " kelompok di grafik."
         )
 
-        # Semua grafik & tabel di Tab 3 pakai df_kategori_exploded, bukan
-        # df_filtered mentah, supaya kategori gabungan dipecah jadi
-        # kategori individual (lihat explode_kategori_channel di atas)
-        # dan baris yang kategorinya kosong/Tidak Diketahui tidak ikut
-        # tampil sebagai kategori tersendiri.
         df_kategori_exploded = explode_kategori_channel(df_filtered, col_stream)
 
         if (
