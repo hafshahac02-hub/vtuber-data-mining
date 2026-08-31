@@ -324,28 +324,27 @@ st.markdown(
     html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
     .block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1300px; }
 
-    h1, h2, h3, h4, h5 { font-weight: 700 !important; letter-spacing: -0.01em; color: #1E293B; }
+    h1, h2, h3, h4, h5 { font-weight: 700 !important; letter-spacing: -0.01em; color: #F8FAFC; }
     h1 { font-size: 1.9rem !important; }
 
     .metric-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
+        background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
+        border: 1px solid rgba(255, 255, 255, 0.09);
         border-radius: 14px;
         padding: 16px 20px;
-        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
         transition: border-color 0.15s ease;
     }
-    .metric-card:hover { border-color: #6366F1; }
+    .metric-card:hover { border-color: rgba(99, 102, 241, 0.45); }
     .metric-title {
-        font-size: 0.72rem; color: #64748B; font-weight: 700;
+        font-size: 0.72rem; color: #94A3B8; font-weight: 700;
         text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;
     }
-    .metric-value { font-size: 1.85rem; font-weight: 800; color: #1E293B; line-height: 1.15; }
+    .metric-value { font-size: 1.85rem; font-weight: 800; color: #F8FAFC; line-height: 1.15; }
     .metric-sub { font-size: 0.78rem; color: #64748B; margin-top: 2px; }
 
     .extractor-container {
-        background: linear-gradient(135deg, #EEF2FF, #F5F3FF);
-        border: 1px solid #C7D2FE;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.04));
+        border: 1px solid rgba(99, 102, 241, 0.25);
         border-radius: 16px;
         padding: 22px 24px;
         margin-bottom: 16px;
@@ -358,9 +357,9 @@ st.markdown(
         font-weight: 700;
         letter-spacing: 0.5px;
         text-transform: uppercase;
-        color: #4F46E5;
-        background: #EEF2FF;
-        border: 1px solid #C7D2FE;
+        color: #A5B4FC;
+        background: rgba(99, 102, 241, 0.12);
+        border: 1px solid rgba(99, 102, 241, 0.25);
         border-radius: 999px;
         padding: 3px 12px;
         margin-bottom: 10px;
@@ -369,15 +368,29 @@ st.markdown(
     .kategori-list {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 8px;
         margin-top: 10px;
     }
     .kategori-list-item {
-        font-size: 1.05rem;
-        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 10px;
+        padding: 9px 14px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #E2E8F0;
+    }
+    .kategori-list-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        flex-shrink: 0;
     }
 
-    div[data-testid="stExpander"] { border-radius: 12px; border-color: #E2E8F0; }
+    div[data-testid="stExpander"] { border-radius: 12px; border-color: rgba(255,255,255,0.08); }
     div[data-testid="stTabs"] button { font-weight: 600; }
     </style>
 """,
@@ -602,14 +615,14 @@ def style_fig(fig):
   fig.update_layout(
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(0,0,0,0)",
-      font=dict(family="Plus Jakarta Sans", color="#1E293B"),
+      font=dict(family="Plus Jakarta Sans", color="#E2E8F0"),
       margin=dict(l=15, r=15, t=25, b=15),
       legend=dict(
           orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
       ),
   )
-  fig.update_xaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0")
-  fig.update_yaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0")
+  fig.update_xaxes(gridcolor="rgba(255,255,255,0.12)", zerolinecolor="rgba(255,255,255,0.12)")
+  fig.update_yaxes(gridcolor="rgba(255,255,255,0.12)", zerolinecolor="rgba(255,255,255,0.12)")
   return fig
 
 
@@ -635,7 +648,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       """
         <div class="extractor-container">
             <h3>Ekstraksi Live Chat dari Satu Video YouTube</h3>
-            <p style="color: #475569; font-size: 0.9rem; margin-bottom: 0;">
+            <p style="color: #CBD5E1; font-size: 0.9rem; margin-bottom: 0;">
                 Tempelkan tautan video YouTube (live maupun replay) untuk menjalankan analisis
                 secara langsung. Setiap chat akan diklasifikasikan sentimennya lewat model
                 <b>Naive Bayes</b>, sementara topik pembicaraannya dipetakan berdasarkan pola
@@ -1644,8 +1657,11 @@ else:
               )
               if daftar_kategori_vt:
                 list_html = "".join(
-                    f'<div class="kategori-list-item" style="color:'
-                    f'{warna_kategori_vt.get(kat, "#6366F1")};">{kat}</div>'
+                    f'<div class="kategori-list-item">'
+                    f'<span class="kategori-list-dot" style="background-color:'
+                    f'{warna_kategori_vt.get(kat, "#6366F1")};"></span>'
+                    f'<span>{kat}</span>'
+                    f'</div>'
                     for kat in daftar_kategori_vt
                 )
                 st.markdown(
