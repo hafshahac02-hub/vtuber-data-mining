@@ -240,11 +240,11 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
 # muncul per topik, sesuai kategori final yang diminta:
 # ==========================================================
 TOPIC_LABELS = {
-    1: "Topik 1 · Sapaan & Absen Awal Streaming",
-    2: "Topik 2 · Pamitan & Penutup Streaming",
-    3: "Topik 3 · Pujian & Dukungan ke Streamer",
-    4: "Topik 4 · Candaan & Reaksi Spontan",
-    5: "Topik 5 · Obrolan Bebas / Lain-lain",
+    1: "Topik 1: Sapaan & Absen Awal Streaming",
+    2: "Topik 2: Pamitan & Penutup Streaming",
+    3: "Topik 3: Pujian & Dukungan ke Streamer",
+    4: "Topik 4: Candaan & Reaksi Spontan",
+    5: "Topik 5: Obrolan Bebas / Lain-lain",
 }
 
 # ==========================================================
@@ -521,6 +521,40 @@ def find_col(df, possible_names, default=None):
       if name.lower() in str(col).lower():
         return col
   return default
+
+
+# ==========================================================
+# REVISI: pisah kategori channel yang isinya gabungan beberapa kategori
+# ==========================================================
+# Satu channel YouTube bisa punya lebih dari satu topicCategory resmi,
+# jadi nilainya di kolom "Kategori Channel (YouTube)" berupa gabungan
+# dipisah koma, misal "Role-playing video game, Video game culture".
+# Kalau dipakai langsung di grafik/tabel pengelompokan, tiap KOMBINASI
+# unik dianggap kategori sendiri-sendiri, jadi channel yang sama-sama
+# punya "Role-playing video game" jadi kepisah kelompoknya hanya karena
+# kombinasi lengkapnya beda. Fungsi ini memecah nilainya jadi satu baris
+# per kategori individual, supaya channel-channel dengan kategori yang
+# sama tetap ngumpul jadi satu kelompok di grafik, walaupun kombinasi
+# kategori lengkap masing-masing beda. Baris dengan kategori kosong,
+# NaN, atau "Tidak Diketahui" dibuang sepenuhnya (tidak ditampilkan
+# sebagai kategori tersendiri).
+_KATEGORI_KOSONG_PATTERN = {
+    "", "nan", "none", "null", "-", "tidak diketahui", "unknown",
+    "tidak diketahui,", "kosong",
+}
+
+
+def explode_kategori_channel(df, kolom_kategori):
+  if df is None or df.empty or not kolom_kategori or kolom_kategori not in df.columns:
+    return df
+  df_exp = df.copy()
+  df_exp[kolom_kategori] = df_exp[kolom_kategori].astype(str).str.split(",")
+  df_exp = df_exp.explode(kolom_kategori)
+  df_exp[kolom_kategori] = df_exp[kolom_kategori].str.strip()
+  df_exp = df_exp[
+      ~df_exp[kolom_kategori].str.lower().isin(_KATEGORI_KOSONG_PATTERN)
+  ]
+  return df_exp
 
 
 col_vtuber = find_col(
@@ -810,7 +844,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           else:
             st.error(
                 f"Scraper menerima {raw_message_count} pesan mentah, tapi "
-                "semuanya tanpa field 'comment' yang valid — kemungkinan "
+                "semuanya tanpa field 'comment' yang valid, kemungkinan "
                 "format respons dari YouTube berubah dan library scraper "
                 "perlu di-update ke versi terbaru."
             )
@@ -1257,7 +1291,7 @@ else:
           f"Kolom teks bersih (app): `{col_text_bersih_app}`\n\n"
           "Kalau kolom kategori channel di atas masih nunjuk ke kolom"
           " observasi lama (bukan 'Kategori Channel (YouTube)'), berarti"
-          " nama kolom di file Excel belum cocok/berubah — cek lagi nama"
+          " nama kolom di file Excel belum cocok/berubah, cek lagi nama"
           " kolomnya di file dataset."
       )
     all_vtubers = (
@@ -1324,37 +1358,26 @@ else:
             else {}
         )
         with st.expander(
-            "Kata Kunci AKTUAL Tiap Topik LDA — dihitung dari dataset yang"
-            " sedang dimuat (klik untuk membuka)",
+            "Kata Kunci AKTUAL Tiap Topik LDA (dihitung dari dataset yang"
+            " sedang dimuat, klik untuk membuka)",
             expanded=False,
         ):
           if kata_kunci_topik_aktual:
-            st.caption(
-                "Daftar di bawah dihitung otomatis dari kolom teks yang"
-                " aktif di file Excel ini, lalu dibersihkan ULANG dari"
-                " stopword (aku, di, itu, dan, yang, nya, ga, dst) pakai"
-                " daftar stopword terbaru di app ini — jadi tidak"
-                " tergantung apakah hasil pembersihan di Colab sudah"
-                " sempurna atau belum. Bukan teks yang diketik manual;"
-                " begitu file dataset ditimpa ke GitHub, daftar ini"
-                " otomatis ikut berubah tanpa perlu edit kode sama sekali."
-            )
             for _label, _kata_list in kata_kunci_topik_aktual.items():
               _teks_kata = (
                   ", ".join([k for k, _ in _kata_list])
                   if _kata_list
                   else "(belum ada data bersih untuk topik ini)"
               )
-              st.markdown(f"* **{_label}** — *{_teks_kata}*")
+              st.markdown(f"* **{_label}**: *{_teks_kata}*")
           else:
             st.warning(
                 "Kolom teks ('Pesan Bersih'/'clean_text'/'Chat Text') tidak"
                 " ditemukan di dataset ini, jadi kata kunci aktual belum"
                 " bisa dihitung. Pastikan file dataset punya salah satu"
-                " kolom teks tersebut — tidak ada lagi teks contoh/"
-                " hardcode yang ditampilkan sebagai pengganti, untuk"
-                " menghindari kata yang sudah tidak relevan dengan data"
-                " sebenarnya."
+                " kolom teks tersebut. Tidak ada lagi teks contoh/hardcode"
+                " yang ditampilkan sebagai pengganti, untuk menghindari"
+                " kata yang sudah tidak relevan dengan data sebenarnya."
             )
 
         col_a, col_b = st.columns(2)
@@ -1629,7 +1652,7 @@ else:
               kategori_resmi_list.append(_hasil)
             else:
               kategori_resmi_list.append(
-                  f'{_row["Kategori Konten"]} (belum ada di dataset — fallback observasi manual)'
+                  f'{_row["Kategori Konten"]} (belum ada di dataset, fallback observasi manual)'
               )
           df_table_20["Kategori Channel (Resmi YouTube)"] = kategori_resmi_list
           df_table_20 = df_table_20.drop(columns=["Kategori Konten"])
@@ -1665,7 +1688,7 @@ else:
             st.markdown(f"##### Kategori Channel ({selected_single_vt})")
             if col_stream in df_single.columns:
               fig_single_cat = px.pie(
-                  df_single,
+                  explode_kategori_channel(df_single, col_stream),
                   names=col_stream,
                   hole=0.55,
                   color_discrete_sequence=COLOR_THEME,
@@ -1754,7 +1777,7 @@ else:
             st.markdown("##### Sebaran Kategori Channel per VTuber")
             if col_stream in df_filtered.columns:
               fig_vt_cat = px.histogram(
-                  df_filtered,
+                  explode_kategori_channel(df_filtered, col_stream),
                   x=col_vtuber,
                   color=col_stream,
                   barmode="stack",
@@ -1777,19 +1800,31 @@ else:
         st.markdown("### Analisis Komparatif & Korelasi Kategori Channel")
         st.caption(
             "Membedah keterkaitan antara kategori channel dengan pola"
-            " respon sentimen dan topik pembicaraan audiens. Sumber"
-            " kategori mengikuti kolom yang tersedia di dataset (kategori"
-            " resmi YouTube jika sudah ada, kalau belum memakai kategori"
-            " observasi pribadi)."
+            " respon sentimen dan topik pembicaraan audiens. Kategori"
+            " channel yang gabungan (mis. \"Role-playing video game,"
+            " Video game culture\") dipecah jadi kategori individual"
+            " supaya channel dengan kategori yang sama tetap satu"
+            " kelompok di grafik."
         )
 
-        if col_stream in df_filtered.columns:
+        # Semua grafik & tabel di Tab 3 pakai df_kategori_exploded, bukan
+        # df_filtered mentah, supaya kategori gabungan dipecah jadi
+        # kategori individual (lihat explode_kategori_channel di atas)
+        # dan baris yang kategorinya kosong/Tidak Diketahui tidak ikut
+        # tampil sebagai kategori tersendiri.
+        df_kategori_exploded = explode_kategori_channel(df_filtered, col_stream)
+
+        if (
+            col_stream in df_filtered.columns
+            and df_kategori_exploded is not None
+            and not df_kategori_exploded.empty
+        ):
           col_k1, col_k2 = st.columns(2)
           with col_k1:
             st.markdown("##### 1. Distribusi Sentimen per Kategori Channel")
-            if col_sentimen in df_filtered.columns:
+            if col_sentimen in df_kategori_exploded.columns:
               fig_cat_sent = px.histogram(
-                  df_filtered,
+                  df_kategori_exploded,
                   x=col_stream,
                   color=col_sentimen,
                   barmode="group",
@@ -1803,7 +1838,7 @@ else:
           with col_k2:
             st.markdown("##### 2. Distribusi Topik LDA per Kategori Channel")
             fig_cat_top = px.histogram(
-                df_filtered,
+                df_kategori_exploded,
                 x=col_stream,
                 color=col_topik,
                 barmode="stack",
@@ -1819,7 +1854,7 @@ else:
                 "##### 3. Persentase Sentimen Positif per Kategori (%)"
             )
             cat_stats = (
-                df_filtered.groupby([col_stream, col_sentimen])
+                df_kategori_exploded.groupby([col_stream, col_sentimen])
                 .size()
                 .unstack(fill_value=0)
             )
@@ -1846,7 +1881,7 @@ else:
           with col_k4:
             st.markdown("##### 4. Dominansi Topik Utama pada Tiap Kategori")
             top_cat_matrix = (
-                df_filtered.groupby([col_stream, col_topik])
+                df_kategori_exploded.groupby([col_stream, col_topik])
                 .size()
                 .reset_index(name="Jumlah Chat")
             )
@@ -1866,7 +1901,7 @@ else:
               "##### Tabel Ringkasan Korelasi Kategori Channel & Sentimen"
           )
           cat_summary = (
-              df_filtered.groupby(col_stream)
+              df_kategori_exploded.groupby(col_stream)
               .agg(
                   Total_Chat=(col_sentimen, "count"),
                   Chat_Positif=(col_sentimen, lambda x: (x == "Positif").sum()),
