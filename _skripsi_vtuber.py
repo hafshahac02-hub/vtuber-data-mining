@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import time
 import traceback
 from collections import Counter
 
@@ -8,6 +9,7 @@ import joblib
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 try:
@@ -44,6 +46,8 @@ try:
   from Sastrawi.StopWordRemover.StopWordRemoverFactory import (
       StopWordRemoverFactory,
   )
+  from Sastrawi.Dictionary.ArrayDictionary import ArrayDictionary
+  from Sastrawi.StopWordRemover.StopWordRemover import StopWordRemover
 
   HAS_SASTRAWI = True
 except Exception:
@@ -64,17 +68,42 @@ def load_ml_model():
 model_nb, tfidf_vec = load_ml_model()
 
 
-# Preprocessing Sastrawi
+# ==========================================================
+# REVISI #1: STOPWORD BUG
+# ==========================================================
+# Daftar stopword bawaan Sastrawi itu formal, gak nyakup kata gaul yang
+# sering muncul di live chat (ga, yg, krn, dgn, dst). Ini yang bikin kata
+# kayak "aku, di, itu, ga, yang, ada" lolos jadi kata kunci topik LDA.
+# PENTING: jangan masukkan kata yang dipakai sebagai sinyal deteksi topik
+# di TOPIC_KEYWORD_HINTS / deteksi_topik_realtime (misal "lagi", "wkwk",
+# "ka") ke daftar ini, nanti malah topiknya gak kedeteksi.
+CUSTOM_STOPWORDS_TAMBAHAN = [
+    "ga", "gak", "ngga", "nggak", "gk", "yg", "krn", "karna", "tp",
+    "dgn", "dg", "utk", "sm", "nih", "sih", "deh", "dong", "kok",
+    "loh", "lho", "ya", "iya", "oke", "ok", "aja", "doang", "nya",
+    "kan", "kali", "gitu", "gini", "gimana", "gmn", "emang", "emg",
+    "udah", "udh", "blm", "belom", "trs", "jd", "jadinya", "biar",
+]
+
+
 @st.cache_resource
 def load_sastrawi_tools():
-  if HAS_SASTRAWI:
-    try:
-      stemmer = StemmerFactory().create_stemmer()
-      stopword_remover = StopWordRemoverFactory().create_stop_word_remover()
-      return stemmer, stopword_remover
-    except Exception:
-      return None, None
-  return None, None
+  if not HAS_SASTRAWI:
+    return None, None
+  try:
+    stemmer = StemmerFactory().create_stemmer()
+
+    daftar_stopword_default = StopWordRemoverFactory().get_stop_words()
+    daftar_stopword_gabungan = list(
+        set(daftar_stopword_default + CUSTOM_STOPWORDS_TAMBAHAN)
+    )
+    kamus_stopword = ArrayDictionary(daftar_stopword_gabungan)
+    stopword_remover = StopWordRemover(kamus_stopword)
+
+    return stemmer, stopword_remover
+  except Exception as e:
+    st.session_state["sastrawi_load_error"] = str(e)
+    return None, None
 
 
 stemmer, stopword_remover = load_sastrawi_tools()
@@ -86,12 +115,34 @@ def preprocess_text(text):
   text = text.lower()
   text = re.sub(r"http\S+|www\S+|https\S+", "", text)
   text = re.sub(r"[^a-zA-Z\s]", "", text)
+
   if HAS_SASTRAWI and stopword_remover and stemmer:
     try:
       text = stopword_remover.remove(text)
       text = stemmer.stem(text)
-    except Exception:
-      pass
+    except Exception as e:
+      # REVISI: dulu di sini "except Exception: pass" yang nelen error diam
+      # diam, jadi teks lolos MENTAH tanpa dibersihkan tanpa ketahuan.
+      # Sekarang errornya ditampilkan (sekali saja per sesi) biar kelihatan
+      # kalau proses pembersihan gagal.
+      if "preprocess_error_shown" not in st.session_state:
+        st.session_state["preprocess_error_shown"] = True
+        st.warning(
+            f"Pembersihan Sastrawi sempat gagal untuk sebagian pesan"
+            f" ({type(e).__name__}: {e}). Kata stopword pada pesan itu"
+            f" TIDAK ikut dibersihkan."
+        )
+  else:
+    if "sastrawi_missing_warned" not in st.session_state:
+      st.session_state["sastrawi_missing_warned"] = True
+      pesan_error = st.session_state.get("sastrawi_load_error", "")
+      st.warning(
+          "Sastrawi tidak aktif di environment ini, jadi stopword (aku, di,"
+          " itu, ga, yang, dst) TIDAK ikut dibersihkan dari teks."
+          f" {('Detail: ' + pesan_error) if pesan_error else ''}"
+          " Pastikan 'Sastrawi' ada di requirements.txt dan ke-install"
+          " dengan benar di server."
+      )
   return text.strip()
 
 
@@ -109,7 +160,10 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
 
 
 # Label topik LDA — satu sumber kebenaran dipakai di seluruh app.
-# Isi & urutan keyword TIDAK diubah, hanya penamaan/tampilannya dirapikan.
+# CATATAN PENTING: label & kata kunci di bawah ini masih hasil LDA versi
+# LAMA yang datanya belum bersih dari stopword. Setelah tahap Colab (fit
+# ulang LDA pakai teks yang sudah bersih) selesai, ganti isi TOPIC_LABELS
+# dan TOPIC_KEYWORD_HINTS di bawah ini sesuai kata kunci topik yang baru.
 TOPIC_LABELS = {
     1: "Topik 1 · Sapaan & Interaksi",
     2: "Topik 2 · Obrolan Umum",
@@ -118,13 +172,26 @@ TOPIC_LABELS = {
     5: "Topik 5 · Ekspresi Tawa & Suka",
 }
 
+# TODO setelah retrain LDA di Colab: ganti hint kata kunci di bawah ini
+# dengan top-words hasil LDA yang baru (yang sudah bersih dari stopword).
 TOPIC_KEYWORD_HINTS = {
     1: "bang, banget, sil, tris, kalian, malam",
-    2: "aku, di, itu, ga, yang, ada",
+    2: "aku, di, itu, ga, yang, ada",  # <- TODO: ganti setelah retrain
     3: "the, live, selamat, datang, di, semoga",
     4: "kak, halo, jangan, otsu, stream, ka",
     5: "lagi, dan, wkwkwk, suka, lah, dengan",
 }
+
+
+# ==========================================================
+# REVISI #2: word-boundary matching (bukan substring lagi)
+# ==========================================================
+# Sebelumnya pakai "kata in teks" (substring), jadi kata pendek kayak "ka"
+# bisa ke-match di dalam kata lain (mis. "kalian" ngandung substring "ka").
+# Sekarang pakai regex \b (word boundary), konsisten dengan pola yang
+# sudah dipakai di bagian klasifikasi batch (c1-c5) di bawah.
+def _match_any_kata(teks, daftar_kata):
+  return any(re.search(rf"\b{re.escape(k)}\b", teks) for k in daftar_kata)
 
 
 def deteksi_topik_realtime(teks_bersih):
@@ -132,57 +199,108 @@ def deteksi_topik_realtime(teks_bersih):
     return TOPIC_LABELS[2]
   t = str(teks_bersih).lower()
 
-  if any(
-      w in t
-      for w in [
-          "otsu",
-          "otsukare",
-          "makasih",
-          "terimakasih",
-          "stream",
-          "terima kasih",
-          "ka",
-          "kak",
-      ]
+  if _match_any_kata(
+      t,
+      ["otsu", "otsukare", "makasih", "terimakasih", "stream",
+       "terima kasih", "ka", "kak"],
   ):
     return TOPIC_LABELS[4]
-  elif any(
-      w in t
-      for w in [
-          "wkwk",
-          "wkwkwk",
-          "haha",
-          "hahaha",
-          "xixi",
-          "lol",
-          "suka",
-          "ngakak",
-          "lagi",
-      ]
+  elif _match_any_kata(
+      t,
+      ["wkwk", "wkwkwk", "haha", "hahaha", "xixi", "lol", "suka",
+       "ngakak", "lagi"],
   ):
     return TOPIC_LABELS[5]
-  elif any(
-      w in t
-      for w in ["selamat", "datang", "welcome", "live", "semoga", "the"]
+  elif _match_any_kata(
+      t, ["selamat", "datang", "welcome", "live", "semoga", "the"]
   ):
     return TOPIC_LABELS[3]
-  elif any(
-      w in t
-      for w in [
-          "halo",
-          "hai",
-          "bang",
-          "malam",
-          "pagi",
-          "siang",
-          "kalian",
-          "sil",
-          "tris",
-      ]
+  elif _match_any_kata(
+      t,
+      ["halo", "hai", "bang", "malam", "pagi", "siang", "kalian",
+       "sil", "tris"],
   ):
     return TOPIC_LABELS[1]
   else:
     return TOPIC_LABELS[2]
+
+
+# ==========================================================
+# REVISI #3: kategori channel resmi YouTube (topicDetails)
+# ==========================================================
+# Menjawab saran penguji: kategori dipetakan dari kategori resmi channel
+# di YouTube (topicCategories), bukan dari tipe konten yang ditentukan
+# sendiri (Gaming/Freetalk/dst).
+STANDARD_YOUTUBE_CATEGORIES = [
+    "Gaming",
+    "Entertainment",
+    "Music",
+    "People & Blogs",
+    "Comedy",
+    "Education",
+    "Howto & Style",
+    "Film & Animation",
+    "Sports",
+    "Travel & Events",
+    "News & Politics",
+    "Science & Technology",
+    "Autos & Vehicles",
+    "Pets & Animals",
+    "Nonprofits & Activism",
+]
+
+
+def _sederhanakan_topic_category(url_wikipedia):
+  # topicCategories dari YouTube API berbentuk URL wikipedia, misal:
+  # https://en.wikipedia.org/wiki/Video_game_culture
+  # Diringkas jadi nama yang gampang dibaca: "Video game culture"
+  return url_wikipedia.rstrip("/").split("/")[-1].replace("_", " ")
+
+
+def ambil_kategori_channel_youtube(video_url, api_key):
+  """Ambil kategori resmi channel YouTube dari video_url lewat YouTube
+  Data API v3 (endpoint videos -> channelId -> channels.topicDetails).
+  Butuh API key sendiri (gratis, aktifkan 'YouTube Data API v3' di
+  Google Cloud Console). Return list nama kategori, atau None kalau
+  gagal / API key kosong / video tidak ditemukan.
+  """
+  if not api_key:
+    return None
+  try:
+    match_video_id = re.search(
+        r"(?:v=|youtu\.be/|/live/)([A-Za-z0-9_-]{11})", video_url
+    )
+    if not match_video_id:
+      return None
+    video_id = match_video_id.group(1)
+
+    resp_video = requests.get(
+        "https://www.googleapis.com/youtube/v3/videos",
+        params={"part": "snippet", "id": video_id, "key": api_key},
+        timeout=10,
+    )
+    resp_video.raise_for_status()
+    items_video = resp_video.json().get("items", [])
+    if not items_video:
+      return None
+    channel_id = items_video[0]["snippet"]["channelId"]
+
+    resp_channel = requests.get(
+        "https://www.googleapis.com/youtube/v3/channels",
+        params={"part": "topicDetails", "id": channel_id, "key": api_key},
+        timeout=10,
+    )
+    resp_channel.raise_for_status()
+    items_channel = resp_channel.json().get("items", [])
+    if not items_channel:
+      return None
+    urls_topik = items_channel[0].get("topicDetails", {}).get(
+        "topicCategories", []
+    )
+    hasil = [_sederhanakan_topic_category(u) for u in urls_topik]
+    return hasil or None
+  except Exception:
+    return None
 
 
 # Styling CSS UI
@@ -244,9 +362,6 @@ st.markdown(
 
 
 def metric_card(col, title, value, sub=None, color=None):
-  # HTML dirangkai jadi satu baris (tanpa indentasi menjorok) supaya tidak
-  # ditangkap markdown Streamlit sebagai indented code block — itu penyebab
-  # tag penutup </div> sempat muncul sebagai teks mentah di kartu.
   color_style = f' style="color:{color}"' if color else ""
   sub_html = f'<div class="metric-sub">{sub}</div>' if sub else ""
   html = (
@@ -297,8 +412,18 @@ def find_col(df, possible_names, default=None):
 col_vtuber = find_col(
     df_benchmark, ["vtuber", "nama", "channel", "creator"], "VTuber Name"
 )
+# REVISI: prioritaskan nama kolom kategori channel RESMI (hasil
+# fetch_kategori_youtube.py) kalau sudah ada di file Excel dataset.
+# Kalau belum ada, fallback ke kolom kategori konten lama seperti sebelum
+# nya, supaya app tetap jalan sebelum kamu sempat update datasetnya.
 col_stream = find_col(
-    df_benchmark, ["stream", "kategori", "category", "type"], "Stream Type"
+    df_benchmark,
+    [
+        "kategori channel", "channel category", "official category",
+        "kategori resmi", "topic categor",
+        "stream", "kategori", "category", "type",
+    ],
+    "Stream Type",
 )
 col_sentimen = find_col(
     df_benchmark, ["sentimen", "sentiment", "prediksi", "label"], "Prediksi Sentimen"
@@ -342,7 +467,6 @@ if not df_benchmark.empty:
   else:
     df_benchmark[col_topik] = "General"
 
-  # Kalau nilainya "General"/kosong, lakukan analisis kata kunci cepat
   mask_invalid = df_benchmark[col_topik].isna() | df_benchmark[
       col_topik
   ].astype(str).str.lower().isin(["general", "nan", "", "none", "null"])
@@ -422,6 +546,20 @@ mode_pilihan = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
+# REVISI: pengaturan opsional buat deteksi kategori channel resmi otomatis
+st.sidebar.markdown("### Pengaturan Opsional")
+youtube_api_key = st.sidebar.text_input(
+    "YouTube Data API Key (opsional)",
+    type="password",
+    help=(
+        "Kalau diisi, kategori channel pada mode ekstraksi realtime akan"
+        " dideteksi otomatis dari kategori resmi YouTube (topicCategories),"
+        " bukan dipilih manual. Dapatkan API key gratis di Google Cloud"
+        " Console lalu aktifkan 'YouTube Data API v3'."
+    ),
+)
+st.sidebar.markdown("---")
+
 # ==========================================================
 # MODE 1: EKSTRAKSI LIVE CHAT (REALTIME + ANALYTICS)
 # ==========================================================
@@ -462,16 +600,13 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
         ),
     )
   with col_kat:
-    kategori_pilihan = st.selectbox(
-        "Kategori Stream",
-        [
-            "Gaming",
-            "Freetalk",
-            "Collaboration",
-            "Karaoke",
-            "Working",
-            "Lainnya",
-        ],
+    kategori_pilihan_manual = st.selectbox(
+        "Kategori Channel (fallback manual)",
+        STANDARD_YOUTUBE_CATEGORIES,
+        help=(
+            "Dipakai kalau YouTube API Key di sidebar tidak diisi, atau"
+            " deteksi otomatis gagal."
+        ),
     )
 
   btn_proses = st.button(
@@ -495,14 +630,21 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       if "?si=" in clean_url:
         clean_url = clean_url.split("?si=")[0]
 
+      # REVISI: coba deteksi kategori channel resmi lewat API dulu,
+      # fallback ke pilihan manual kalau API key kosong / gagal.
+      kategori_final = kategori_pilihan_manual
+      sumber_kategori = "manual"
+      if youtube_api_key:
+        hasil_auto = ambil_kategori_channel_youtube(clean_url, youtube_api_key)
+        if hasil_auto:
+          kategori_final = ", ".join(hasil_auto)
+          sumber_kategori = "otomatis (YouTube API)"
+
       status_box = st.info(
           "Sedang mengambil live chat, membersihkan teksnya, lalu menjalankan"
           " prediksi sentimen dan pemetaan topik..."
       )
 
-      # quiet=False supaya warning asli dari library (mis. "chat is
-      # disabled", "members-only") tercetak ke log Streamlit Cloud,
-      # bukan disembunyikan.
       try:
         downloader = YouTubeChatDownloader()
         messages = downloader.download_chat(
@@ -527,7 +669,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
                 "Pesan Bersih (Sastrawi)": clean_text,
                 "Prediksi Sentimen": sentiment,
                 "Topik LDA": topik_lda,
-                "Kategori Stream": kategori_pilihan,
+                "Kategori Channel (YouTube)": kategori_final,
             })
 
         status_box.empty()
@@ -556,7 +698,8 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           st.session_state["real_extracted_data"] = df_res
           st.success(
               f"Berhasil mengekstrak dan menganalisis **{len(df_res):,} baris**"
-              " live chat."
+              f" live chat. Kategori channel dideteksi secara {sumber_kategori}:"
+              f" **{kategori_final}**."
           )
 
       except Exception as e:
@@ -579,8 +722,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     unique_users = df_real["Username"].nunique()
     avg_len = df_real["Chat Text"].astype(str).str.len().mean()
 
-    # Parsing timestamp untuk chart berbasis waktu (tidak dipaksa gagal
-    # kalau formatnya tidak konsisten dari scraper)
     df_time = df_real.copy()
     df_time["Timestamp_parsed"] = pd.to_datetime(
         df_time["Timestamp"], errors="coerce"
@@ -590,7 +731,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
     st.markdown("---")
     st.subheader("Hasil Analisis Data Realtime")
 
-    # Dikumpulkan supaya bisa dibundel jadi satu laporan PDF di bagian bawah
     charts_for_pdf = {}
 
     m1, m2, m3, m4 = st.columns(4)
@@ -709,8 +849,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           "Timestamp_parsed"
       )
 
-      # Interval mengikuti durasi total stream, supaya video yang berjam-jam
-      # tidak menghasilkan ratusan titik data yang bikin grafik bergerigi
       durasi_menit = (
           df_time["Timestamp_parsed"].max() - df_time["Timestamp_parsed"].min()
       ).total_seconds() / 60
@@ -780,10 +918,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       return buffer.getvalue()
 
     def _fig_for_print(fig, judul_chart):
-      # Chart di layar pakai tema gelap. Kalau dipakai langsung untuk
-      # export PNG/PDF berlatar putih, teksnya jadi nyaris tak kelihatan —
-      # jadi dibuat salinan bertema terang khusus cetak, tanpa mengubah
-      # versi yang tampil di dashboard.
       fig_print = go.Figure(fig)
       fig_print.update_layout(
           title=dict(text=judul_chart, x=0.02, xanchor="left",
@@ -939,7 +1073,7 @@ else:
       tab1, tab2, tab3 = st.tabs([
           "Ringkasan & Referensi LDA",
           "Profil & Perbandingan VTuber",
-          "Analisis Kategori Stream & Korelasi",
+          "Analisis Kategori Channel & Korelasi",
       ])
 
       # TAB 1: Ringkasan & LDA
@@ -1037,6 +1171,14 @@ else:
 
         with col_prof_right:
           st.markdown("#### Tabel Master 20 VTuber Independen")
+          st.caption(
+              "Kolom 'Kategori Konten' di bawah ini masih kategori"
+              " observasi pribadi. Untuk kolom kategori channel RESMI"
+              " (dari YouTube), jalankan fetch_kategori_youtube.py lalu"
+              " gabungkan hasilnya ke file dataset (.xlsx) sebagai kolom"
+              " baru bernama 'Kategori Channel (YouTube)' — kolom itu akan"
+              " otomatis terpakai di seluruh dashboard begitu ada."
+          )
           data_20_vtuber = [
               {
                   "No": 1,
@@ -1219,7 +1361,7 @@ else:
 
           p1, p2, p3 = st.columns(3)
           with p1:
-            st.markdown(f"##### Kategori Stream ({selected_single_vt})")
+            st.markdown(f"##### Kategori Channel ({selected_single_vt})")
             if col_stream in df_single.columns:
               fig_single_cat = px.pie(
                   df_single,
@@ -1308,7 +1450,7 @@ else:
             st.plotly_chart(style_fig(fig_vt_sent), use_container_width=True)
 
           with col_v2:
-            st.markdown("##### Sebaran Kategori Stream per VTuber")
+            st.markdown("##### Sebaran Kategori Channel per VTuber")
             if col_stream in df_filtered.columns:
               fig_vt_cat = px.histogram(
                   df_filtered,
@@ -1329,18 +1471,21 @@ else:
           )
           st.plotly_chart(style_fig(fig_vt_lda), use_container_width=True)
 
-      # TAB 3: Analisis Kategori Stream & Korelasi
+      # TAB 3: Analisis Kategori Channel & Korelasi
       with tab3:
-        st.markdown("### Analisis Komparatif & Korelasi Kategori Stream")
+        st.markdown("### Analisis Komparatif & Korelasi Kategori Channel")
         st.caption(
-            "Membedah keterkaitan antara format tayangan stream dengan pola"
-            " respon sentimen dan topik pembicaraan audiens."
+            "Membedah keterkaitan antara kategori channel dengan pola"
+            " respon sentimen dan topik pembicaraan audiens. Sumber"
+            " kategori mengikuti kolom yang tersedia di dataset (kategori"
+            " resmi YouTube jika sudah ada, kalau belum memakai kategori"
+            " observasi pribadi)."
         )
 
         if col_stream in df_filtered.columns:
           col_k1, col_k2 = st.columns(2)
           with col_k1:
-            st.markdown("##### 1. Distribusi Sentimen per Kategori Stream")
+            st.markdown("##### 1. Distribusi Sentimen per Kategori Channel")
             if col_sentimen in df_filtered.columns:
               fig_cat_sent = px.histogram(
                   df_filtered,
@@ -1355,7 +1500,7 @@ else:
               st.plotly_chart(style_fig(fig_cat_sent), use_container_width=True)
 
           with col_k2:
-            st.markdown("##### 2. Distribusi Topik LDA per Kategori Stream")
+            st.markdown("##### 2. Distribusi Topik LDA per Kategori Channel")
             fig_cat_top = px.histogram(
                 df_filtered,
                 x=col_stream,
@@ -1417,7 +1562,7 @@ else:
           st.markdown("---")
 
           st.markdown(
-              "##### Tabel Ringkasan Korelasi Kategori Stream & Sentimen"
+              "##### Tabel Ringkasan Korelasi Kategori Channel & Sentimen"
           )
           cat_summary = (
               df_filtered.groupby(col_stream)
