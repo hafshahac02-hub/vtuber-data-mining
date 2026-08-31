@@ -369,22 +369,12 @@ st.markdown(
     .kategori-list {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 10px;
         margin-top: 10px;
     }
     .kategori-list-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: #1E293B;
-    }
-    .kategori-list-dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 3px;
-        flex-shrink: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
     }
 
     div[data-testid="stExpander"] { border-radius: 12px; border-color: #E2E8F0; }
@@ -576,11 +566,24 @@ COLOR_THEME = [
     "#14B8A6",
 ]
 
-KATEGORI_COLOR_PALETTE = (
-    px.colors.qualitative.Alphabet
-    + px.colors.qualitative.Dark24
-    + px.colors.qualitative.Light24
-)
+KATEGORI_COLOR_PALETTE = [
+    "#FF3B30",
+    "#007AFF",
+    "#34C759",
+    "#FF9500",
+    "#AF52DE",
+    "#FF2D95",
+    "#00C7BE",
+    "#FFCC00",
+    "#5AC8FA",
+    "#BF5AF2",
+    "#FF6482",
+    "#32ADE6",
+    "#63E6BE",
+    "#A78BFA",
+    "#FF453A",
+    "#30D158",
+]
 
 
 def get_kategori_color_map(df, kolom_kategori):
@@ -1641,11 +1644,8 @@ else:
               )
               if daftar_kategori_vt:
                 list_html = "".join(
-                    f'<div class="kategori-list-item">'
-                    f'<span class="kategori-list-dot" style="background-color:'
-                    f'{warna_kategori_vt.get(kat, "#6366F1")};"></span>'
-                    f'<span>{kat}</span>'
-                    f'</div>'
+                    f'<div class="kategori-list-item" style="color:'
+                    f'{warna_kategori_vt.get(kat, "#6366F1")};">{kat}</div>'
                     for kat in daftar_kategori_vt
                 )
                 st.markdown(
