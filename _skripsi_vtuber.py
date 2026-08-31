@@ -324,27 +324,28 @@ st.markdown(
     html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
     .block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1300px; }
 
-    h1, h2, h3, h4, h5 { font-weight: 700 !important; letter-spacing: -0.01em; }
+    h1, h2, h3, h4, h5 { font-weight: 700 !important; letter-spacing: -0.01em; color: #1E293B; }
     h1 { font-size: 1.9rem !important; }
 
     .metric-card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
-        border: 1px solid rgba(255, 255, 255, 0.09);
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
         border-radius: 14px;
         padding: 16px 20px;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
         transition: border-color 0.15s ease;
     }
-    .metric-card:hover { border-color: rgba(99, 102, 241, 0.45); }
+    .metric-card:hover { border-color: #6366F1; }
     .metric-title {
-        font-size: 0.72rem; color: #94A3B8; font-weight: 700;
+        font-size: 0.72rem; color: #64748B; font-weight: 700;
         text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;
     }
-    .metric-value { font-size: 1.85rem; font-weight: 800; color: #F8FAFC; line-height: 1.15; }
+    .metric-value { font-size: 1.85rem; font-weight: 800; color: #1E293B; line-height: 1.15; }
     .metric-sub { font-size: 0.78rem; color: #64748B; margin-top: 2px; }
 
     .extractor-container {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.04));
-        border: 1px solid rgba(99, 102, 241, 0.25);
+        background: linear-gradient(135deg, #EEF2FF, #F5F3FF);
+        border: 1px solid #C7D2FE;
         border-radius: 16px;
         padding: 22px 24px;
         margin-bottom: 16px;
@@ -357,31 +358,36 @@ st.markdown(
         font-weight: 700;
         letter-spacing: 0.5px;
         text-transform: uppercase;
-        color: #A5B4FC;
-        background: rgba(99, 102, 241, 0.12);
-        border: 1px solid rgba(99, 102, 241, 0.25);
+        color: #4F46E5;
+        background: #EEF2FF;
+        border: 1px solid #C7D2FE;
         border-radius: 999px;
         padding: 3px 12px;
         margin-bottom: 10px;
     }
 
-    .kategori-chip-wrap {
+    .kategori-list {
         display: flex;
-        flex-wrap: wrap;
+        flex-direction: column;
         gap: 8px;
         margin-top: 10px;
     }
-    .kategori-chip {
-        display: inline-block;
-        font-size: 0.8rem;
+    .kategori-list-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.85rem;
         font-weight: 600;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1.5px solid rgba(99, 102, 241, 0.35);
-        border-radius: 999px;
-        padding: 5px 14px;
+        color: #1E293B;
+    }
+    .kategori-list-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        flex-shrink: 0;
     }
 
-    div[data-testid="stExpander"] { border-radius: 12px; border-color: rgba(255,255,255,0.08); }
+    div[data-testid="stExpander"] { border-radius: 12px; border-color: #E2E8F0; }
     div[data-testid="stTabs"] button { font-weight: 600; }
     </style>
 """,
@@ -593,12 +599,14 @@ def style_fig(fig):
   fig.update_layout(
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(0,0,0,0)",
-      font=dict(family="Plus Jakarta Sans", color="#E2E8F0"),
+      font=dict(family="Plus Jakarta Sans", color="#1E293B"),
       margin=dict(l=15, r=15, t=25, b=15),
       legend=dict(
           orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
       ),
   )
+  fig.update_xaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0")
+  fig.update_yaxes(gridcolor="#E2E8F0", zerolinecolor="#E2E8F0")
   return fig
 
 
@@ -624,7 +632,7 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       """
         <div class="extractor-container">
             <h3>Ekstraksi Live Chat dari Satu Video YouTube</h3>
-            <p style="color: #A0AEC0; font-size: 0.9rem; margin-bottom: 0;">
+            <p style="color: #475569; font-size: 0.9rem; margin-bottom: 0;">
                 Tempelkan tautan video YouTube (live maupun replay) untuk menjalankan analisis
                 secara langsung. Setiap chat akan diklasifikasikan sentimennya lewat model
                 <b>Naive Bayes</b>, sementara topik pembicaraannya dipetakan berdasarkan pola
@@ -1111,6 +1119,42 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       canvas.save(buffer, format="PDF", resolution=150.0)
       return buffer.getvalue()
 
+    def convert_summary_to_pdf_fpdf2(judul, ringkasan_baris, tabel_topik, tabel_users):
+      from fpdf import FPDF
+
+      pdf = FPDF(orientation="P", unit="mm", format="A4")
+      pdf.add_page()
+      pdf.set_font("Helvetica", "B", 16)
+      pdf.multi_cell(0, 9, judul)
+      pdf.ln(2)
+
+      pdf.set_font("Helvetica", "", 11)
+      for baris in ringkasan_baris:
+        pdf.multi_cell(0, 6, baris)
+      pdf.ln(4)
+
+      def _tabel(judul_tabel, df_tabel):
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.multi_cell(0, 7, judul_tabel)
+        pdf.set_font("Helvetica", "", 10)
+        col_w = 190 / max(len(df_tabel.columns), 1)
+        pdf.set_fill_color(238, 242, 255)
+        for kolom in df_tabel.columns:
+          pdf.cell(col_w, 7, str(kolom), border=1, fill=True)
+        pdf.ln(7)
+        for _, baris in df_tabel.iterrows():
+          for nilai in baris:
+            pdf.cell(col_w, 7, str(nilai), border=1)
+          pdf.ln(7)
+        pdf.ln(6)
+
+      if tabel_topik is not None and not tabel_topik.empty:
+        _tabel("Distribusi Topik LDA", tabel_topik)
+      if tabel_users is not None and not tabel_users.empty:
+        _tabel("10 Penonton Paling Aktif", tabel_users)
+
+      return bytes(pdf.output())
+
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
       excel_bytes = convert_df_to_excel(df_real)
@@ -1124,42 +1168,64 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       )
 
     with col_dl2:
-      if not HAS_KALEIDO or not HAS_PIL:
-        st.button(
-            "Unduh Seluruh Grafik (.pdf)",
-            disabled=True,
-            use_container_width=True,
-            help=(
-                "Pustaka kaleido dan/atau Pillow belum terpasang di server."
-                " Tambahkan kaleido==0.2.1 ke requirements.txt untuk"
-                " mengaktifkan fitur ini."
-            ),
-        )
-      else:
-        if st.button(
-            "Siapkan & Unduh Seluruh Grafik (.pdf)",
-            use_container_width=True,
-        ):
-          with st.spinner("Menyusun laporan PDF satu halaman dari seluruh grafik..."):
-            ringkasan = [
-                f"Total live chat ter-ekstrak: {total_real:,}",
-                f"Sentimen positif: {pos_real:,} ({pos_pct:.1f}%)   |"
-                f"   Sentimen negatif: {neg_real:,} ({neg_pct:.1f}%)"
-                f"   |   Penonton unik: {unique_users:,}",
-            ]
-            pdf_bytes = convert_charts_to_onepage_pdf(
-                charts_for_pdf,
-                "Laporan Grafik Analisis Live Chat Realtime",
-                ringkasan,
+      if st.button(
+          "Siapkan & Unduh Laporan Grafik (.pdf)",
+          use_container_width=True,
+      ):
+        ringkasan = [
+            f"Total live chat ter-ekstrak: {total_real:,}",
+            f"Sentimen positif: {pos_real:,} ({pos_pct:.1f}%)   |"
+            f"   Sentimen negatif: {neg_real:,} ({neg_pct:.1f}%)"
+            f"   |   Penonton unik: {unique_users:,}",
+        ]
+
+        pdf_bytes = None
+        pakai_fallback = False
+
+        if HAS_KALEIDO and HAS_PIL:
+          try:
+            with st.spinner("Menyusun laporan PDF satu halaman dari seluruh grafik..."):
+              pdf_bytes = convert_charts_to_onepage_pdf(
+                  charts_for_pdf,
+                  "Laporan Grafik Analisis Live Chat Realtime",
+                  ringkasan,
+              )
+          except Exception:
+            pdf_bytes = None
+
+        if pdf_bytes is None:
+          pakai_fallback = True
+          with st.spinner("Kaleido tidak tersedia di server, menyusun laporan PDF ringkasan..."):
+            tabel_topik = (
+                df_real["Topik LDA"].value_counts().reset_index()
             )
-          st.download_button(
-              label="Unduh Laporan Grafik (.pdf)",
-              data=pdf_bytes,
-              file_name="laporan_grafik_livechat_realtime.pdf",
-              mime="application/pdf",
-              type="primary",
-              use_container_width=True,
+            tabel_topik.columns = ["Topik LDA", "Jumlah Chat"]
+            tabel_users = (
+                df_real["Username"].value_counts().head(10).reset_index()
+            )
+            tabel_users.columns = ["Username", "Jumlah Chat"]
+            pdf_bytes = convert_summary_to_pdf_fpdf2(
+                "Laporan Ringkasan Analisis Live Chat Realtime",
+                ringkasan,
+                tabel_topik,
+                tabel_users,
+            )
+
+        if pakai_fallback:
+          st.warning(
+              "Rendering gambar grafik (kaleido) tidak berjalan di server"
+              " ini, jadi laporan yang diunduh berupa ringkasan angka dan"
+              " tabel, bukan gambar grafik."
           )
+
+        st.download_button(
+            label="Unduh Laporan (.pdf)",
+            data=pdf_bytes,
+            file_name="laporan_livechat_realtime.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
 
 else:
   if df_benchmark.empty:
@@ -1169,19 +1235,6 @@ else:
         " `hasil_akhir_analisis_skripsi.xlsx` sudah tersedia di repo."
     )
   else:
-    st.sidebar.markdown("### Filter Panel Global")
-    with st.sidebar.expander("Info kolom terdeteksi (debug)", expanded=False):
-      st.caption(
-          f"Kolom VTuber: `{col_vtuber}`\n\n"
-          f"Kolom kategori channel: `{col_stream}`\n\n"
-          f"Kolom sentimen: `{col_sentimen}`\n\n"
-          f"Kolom teks mentah: `{col_text_raw}`\n\n"
-          f"Kolom teks bersih (app): `{col_text_bersih_app}`\n\n"
-          "Kalau kolom kategori channel di atas masih nunjuk ke kolom"
-          " observasi lama (bukan 'Kategori Channel (YouTube)'), berarti"
-          " nama kolom di file Excel belum cocok/berubah, cek lagi nama"
-          " kolomnya di file dataset."
-      )
     all_vtubers = (
         sorted(df_benchmark[col_vtuber].dropna().unique().tolist())
         if col_vtuber in df_benchmark.columns
@@ -1587,20 +1640,17 @@ else:
                   df_single_exploded, col_stream
               )
               if daftar_kategori_vt:
-                chip_html = "".join(
-                    f'<span class="kategori-chip" style="border-color:'
-                    f'{warna_kategori_vt.get(kat, "#6366F1")}; color:'
-                    f'{warna_kategori_vt.get(kat, "#6366F1")};">{kat}</span>'
+                list_html = "".join(
+                    f'<div class="kategori-list-item">'
+                    f'<span class="kategori-list-dot" style="background-color:'
+                    f'{warna_kategori_vt.get(kat, "#6366F1")};"></span>'
+                    f'<span>{kat}</span>'
+                    f'</div>'
                     for kat in daftar_kategori_vt
                 )
                 st.markdown(
-                    f'<div class="kategori-chip-wrap">{chip_html}</div>',
+                    f'<div class="kategori-list">{list_html}</div>',
                     unsafe_allow_html=True,
-                )
-                st.caption(
-                    "Channel ini berlabel kategori resmi YouTube di atas."
-                    " Bukan grafik proporsi/dominasi, karena YouTube tidak"
-                    " memberi bobot antar kategori pada satu channel."
                 )
               else:
                 st.info("Kategori channel belum terdeteksi untuk VTuber ini.")
