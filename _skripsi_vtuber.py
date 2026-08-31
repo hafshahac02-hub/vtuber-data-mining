@@ -69,20 +69,30 @@ model_nb, tfidf_vec = load_ml_model()
 
 
 # ==========================================================
-# REVISI #1: STOPWORD BUG
+# REVISI #1 (v2): STOPWORD BUG — dipisah dari deteksi topik
 # ==========================================================
-# Daftar stopword bawaan Sastrawi itu formal, gak nyakup kata gaul yang
-# sering muncul di live chat (ga, yg, krn, dgn, dst). Ini yang bikin kata
-# kayak "aku, di, itu, ga, yang, ada" lolos jadi kata kunci topik LDA.
-# PENTING: jangan masukkan kata yang dipakai sebagai sinyal deteksi topik
-# di TOPIC_KEYWORD_HINTS / deteksi_topik_realtime (misal "lagi", "wkwk",
-# "ka") ke daftar ini, nanti malah topiknya gak kedeteksi.
+# Dulu ada kata-kata (mis. "lagi", "ka", "kak", "the") yang SENGAJA tidak
+# dimasukkan ke daftar stopword karena dipakai sebagai sinyal deteksi
+# topik di deteksi_topik_realtime(). Efek sampingnya: kata-kata itu jadi
+# "nyelip" terus di kolom Pesan Bersih dan muncul sebagai kata kunci yang
+# tidak informatif di grafik ("lagi", "ka", "the", dst).
+#
+# Sekarang deteksi topik TIDAK lagi bergantung pada kolom Pesan Bersih —
+# ada kolom terpisah khusus untuk deteksi (lihat normalize_untuk_deteksi()
+# & deteksi_topik_realtime() di bawah) yang tidak melalui penghapusan
+# stopword sama sekali. Jadi di sini daftar stopword BEBAS dilengkapi
+# dengan kata filler apa pun tanpa takut merusak deteksi topik.
 CUSTOM_STOPWORDS_TAMBAHAN = [
     "ga", "gak", "ngga", "nggak", "gk", "yg", "krn", "karna", "tp",
     "dgn", "dg", "utk", "sm", "nih", "sih", "deh", "dong", "kok",
     "loh", "lho", "ya", "iya", "oke", "ok", "aja", "doang", "nya",
     "kan", "kali", "gitu", "gini", "gimana", "gmn", "emang", "emg",
     "udah", "udh", "blm", "belom", "trs", "jd", "jadinya", "biar",
+    # kata filler tambahan yang sebelumnya "diselamatkan" demi deteksi
+    # topik (sekarang deteksi topik pakai kolom lain, jadi aman dibuang)
+    "lagi", "ka", "kak", "the", "dan", "lah", "dengan", "jangan",
+    "banget", "bgt", "min", "kk", "cak", "bro", "sist", "guys", "gaes",
+    "an", "nan", "wah", "eh", "ehh", "hmm", "hm", "yah", "yaa", "yaah",
 ]
 
 
@@ -109,22 +119,57 @@ def load_sastrawi_tools():
 stemmer, stopword_remover = load_sastrawi_tools()
 
 
-def preprocess_text(text):
+def _normalisasi_dasar(text):
+  """Lowercase + buang URL + buang karakter non-huruf. Tidak membuang
+  stopword dan tidak stemming — dipakai sebagai basis untuk dua kolom
+  turunan yang beda tujuan: preprocess_text() (Pesan Bersih, untuk
+  model & grafik kata kunci) dan normalize_untuk_deteksi() (khusus
+  deteksi topik, lihat catatan di bawah)."""
   if not text or not isinstance(text, str):
     return ""
   text = text.lower()
   text = re.sub(r"http\S+|www\S+|https\S+", "", text)
   text = re.sub(r"[^a-zA-Z\s]", "", text)
+  return text.strip()
+
+
+def normalize_untuk_deteksi(text):
+  """Teks yang dipakai KHUSUS untuk deteksi topik (deteksi_topik_realtime),
+  BUKAN untuk ditampilkan atau dijadikan input model. Sengaja tidak
+  melalui penghapusan stopword sama sekali (hanya lower + buang URL/
+  simbol + stemming ringan), supaya kata sinyal topik seperti "otsu",
+  "wkwk", "selamat", "dadah", dst selalu bisa ketemu apa pun daftar
+  stopword yang dipakai untuk kolom 'Pesan Bersih'. Dengan begitu kolom
+  Pesan Bersih bebas dibersihkan total tanpa mengorbankan akurasi
+  deteksi topik."""
+  teks = _normalisasi_dasar(text)
+  if not teks:
+    return ""
+  if HAS_SASTRAWI and stemmer:
+    try:
+      teks = stemmer.stem(teks)
+    except Exception:
+      pass
+  return teks
+
+
+def preprocess_text(text):
+  """Menghasilkan kolom 'Pesan Bersih (Sastrawi)': teks yang SUDAH bersih
+  total dari stopword (termasuk kata filler seperti "ka", "lagi", "the")
+  dan sudah di-stem. Kolom inilah yang dipakai untuk: (1) input model
+  Naive Bayes, (2) grafik 10 Kata Kunci Terbanyak, (3) grafik Isi Kata
+  Kunci per Topik. Kolom 'Chat Text' (mentah, apa adanya, belum
+  dibersihkan) HANYA dipakai untuk keperluan tampilan asli/panjang
+  pesan, bukan untuk pemrosesan analitik."""
+  text = _normalisasi_dasar(text)
+  if not text:
+    return ""
 
   if HAS_SASTRAWI and stopword_remover and stemmer:
     try:
       text = stopword_remover.remove(text)
       text = stemmer.stem(text)
     except Exception as e:
-      # REVISI: dulu di sini "except Exception: pass" yang nelen error diam
-      # diam, jadi teks lolos MENTAH tanpa dibersihkan tanpa ketahuan.
-      # Sekarang errornya ditampilkan (sekali saja per sesi) biar kelihatan
-      # kalau proses pembersihan gagal.
       if "preprocess_error_shown" not in st.session_state:
         st.session_state["preprocess_error_shown"] = True
         st.warning(
@@ -159,48 +204,53 @@ def prediksi_sentimen_ml(teks_bersih, teks_asli):
   return "Positif"
 
 
-# Label topik LDA — satu sumber kebenaran dipakai di seluruh app.
-# CATATAN PENTING: label & kata kunci di bawah ini masih hasil LDA versi
-# LAMA yang datanya belum bersih dari stopword. Setelah tahap Colab (fit
-# ulang LDA pakai teks yang sudah bersih) selesai, ganti isi TOPIC_LABELS
-# dan TOPIC_KEYWORD_HINTS di bawah ini sesuai kata kunci topik yang baru.
+# ==========================================================
+# Label topik LDA (revisi) — dipetakan dari kata kunci paling sering
+# muncul per topik, sesuai kategori final yang diminta:
+# ==========================================================
 TOPIC_LABELS = {
-    1: "Topik 1 · Sapaan & Interaksi",
-    2: "Topik 2 · Obrolan Umum",
-    3: "Topik 3 · Ucapan Pembuka Live",
-    4: "Topik 4 · Apresiasi ke Streamer",
-    5: "Topik 5 · Ekspresi Tawa & Suka",
+    1: "Topik 1 · Sapaan & Absen Awal Streaming",
+    2: "Topik 2 · Pamitan & Penutup Streaming",
+    3: "Topik 3 · Pujian & Dukungan ke Streamer",
+    4: "Topik 4 · Candaan & Reaksi Spontan",
+    5: "Topik 5 · Obrolan Bebas / Lain-lain",
 }
 
-# TODO setelah retrain LDA di Colab: ganti hint kata kunci di bawah ini
-# dengan top-words hasil LDA yang baru (yang sudah bersih dari stopword).
-TOPIC_KEYWORD_HINTS = {
-    1: "bang, banget, sil, tris, kalian, malam",
-    2: "aku, di, itu, ga, yang, ada",  # <- TODO: ganti setelah retrain
-    3: "the, live, selamat, datang, di, semoga",
-    4: "kak, halo, jangan, otsu, stream, ka",
-    5: "lagi, dan, wkwkwk, suka, lah, dengan",
+# ==========================================================
+# Kata kunci sinyal per topik — dipakai oleh deteksi_topik_realtime()
+# dan blok klasifikasi fallback dataset benchmark di bawah. Daftar ini
+# HANYA berisi kata yang benar-benar bermakna untuk kategori masing-
+# masing (tidak ada stopword/kata filler kosong makna seperti "ka",
+# "lagi", "the", dst — kata-kata itu sudah dibuang dari kolom Pesan
+# Bersih lewat CUSTOM_STOPWORDS_TAMBAHAN).
+# Urutan pengecekan di bawah ini penting: dicek dari topik paling
+# spesifik ke paling umum, dan topik 5 (Obrolan Bebas/Lain-lain) selalu
+# jadi fallback terakhir kalau tidak ada kata kunci topik 1-4 yang cocok.
+TOPIC_SIGNAL_KEYWORDS = {
+    1: [  # Sapaan & Absen Awal Streaming
+        "halo", "hai", "haii", "hallo", "met", "selamat", "datang",
+        "welcome", "pagi", "siang", "sore", "malam", "hadir", "absen",
+        "nyimak", "nonton", "mulai", "live",
+    ],
+    2: [  # Pamitan & Penutup Streaming
+        "otsu", "otsukare", "otsukaresama", "dadah", "bubye", "bye",
+        "sampaijumpa", "udahan", "selesai", "cape", "capek", "pulang",
+        "tidur", "istirahat", "pamit", "gnight", "goodnight", "off dulu",
+    ],
+    3: [  # Pujian & Dukungan ke Streamer
+        "keren", "mantap", "top", "gg", "hebat", "jago", "semangat",
+        "support", "cakep", "kece", "juara", "salut", "bagus", "apik",
+        "bangga", "makasih", "terimakasih", "terima kasih",
+    ],
+    4: [  # Candaan & Reaksi Spontan
+        "wkwk", "wkwkwk", "wkwkwkwk", "haha", "hahaha", "xixi", "lol",
+        "ngakak", "kocak", "lucu", "astaga", "anjay", "gokil", "receh",
+        "kaget",
+    ],
 }
 
 
-# ==========================================================
-# REVISI #4: kata kunci topik dihitung LANGSUNG dari data, bukan hardcode
-# ==========================================================
-# INI JAWABAN kenapa expander "Kata Kunci" masih nampilin stopword lama
-# (aku, di, itu, ga, yang, ada) padahal Sastrawi & file dataset sudah
-# dibersihkan: TOPIC_KEYWORD_HINTS di atas itu TEKS YANG DIKETIK MANUAL,
-# bukan hasil hitungan dari data. Jadi walaupun preprocess_text() dan
-# file Excel-nya sudah bersih, teks hint itu TIDAK otomatis ikut berubah
-# sampai ada yang mengetik ulang teksnya secara manual. Fungsi di bawah
-# ini menghitung top-words LANGSUNG dari data yang sedang aktif dipakai
-# (baik hasil ekstraksi realtime maupun dataset benchmark), jadi hasilnya
-# selalu mengikuti data sebenarnya dan tidak akan basi lagi. Dipakai di
-# Tab 1 dashboard benchmark dan di 2 grafik baru mode ekstraksi realtime.
 def top_words_per_topic(df_sumber, kolom_teks, kolom_topik, n_kata=8, min_panjang=2):
-  """Hitung kata paling sering muncul untuk tiap topik, dari kolom teks
-  yang SUDAH bersih (hasil preprocess_text / kolom 'Pesan Bersih...').
-  Return dict: {nama_topik: [(kata, frekuensi), ...]}
-  """
   hasil = {}
   if (
       df_sumber is None
@@ -216,54 +266,34 @@ def top_words_per_topic(df_sumber, kolom_teks, kolom_topik, n_kata=8, min_panjan
   return hasil
 
 
-# ==========================================================
-# REVISI #2: word-boundary matching (bukan substring lagi)
-# ==========================================================
-# Sebelumnya pakai "kata in teks" (substring), jadi kata pendek kayak "ka"
-# bisa ke-match di dalam kata lain (mis. "kalian" ngandung substring "ka").
-# Sekarang pakai regex \b (word boundary), konsisten dengan pola yang
-# sudah dipakai di bagian klasifikasi batch (c1-c5) di bawah.
 def _match_any_kata(teks, daftar_kata):
   return any(re.search(rf"\b{re.escape(k)}\b", teks) for k in daftar_kata)
 
 
-def deteksi_topik_realtime(teks_bersih):
-  if not teks_bersih:
-    return TOPIC_LABELS[2]
-  t = str(teks_bersih).lower()
-
-  if _match_any_kata(
-      t,
-      ["otsu", "otsukare", "makasih", "terimakasih", "stream",
-       "terima kasih", "ka", "kak"],
-  ):
-    return TOPIC_LABELS[4]
-  elif _match_any_kata(
-      t,
-      ["wkwk", "wkwkwk", "haha", "hahaha", "xixi", "lol", "suka",
-       "ngakak", "lagi"],
-  ):
+def deteksi_topik_realtime(teks_untuk_deteksi):
+  """Klasifikasi topik berbasis kata kunci (TOPIC_SIGNAL_KEYWORDS).
+  PENTING: parameter di sini HARUS teks hasil normalize_untuk_deteksi(),
+  BUKAN kolom 'Pesan Bersih (Sastrawi)' — supaya kata sinyal seperti
+  "otsu"/"wkwk"/"selamat" tidak ikut hilang meskipun kolom Pesan Bersih
+  sendiri sudah dibersihkan total dari kata filler. Kalau tidak ada satu
+  pun kata kunci topik 1-4 yang cocok, otomatis masuk Topik 5 (Obrolan
+  Bebas/Lain-lain) sebagai kategori sisa/paling umum."""
+  if not teks_untuk_deteksi:
     return TOPIC_LABELS[5]
-  elif _match_any_kata(
-      t, ["selamat", "datang", "welcome", "live", "semoga", "the"]
-  ):
-    return TOPIC_LABELS[3]
-  elif _match_any_kata(
-      t,
-      ["halo", "hai", "bang", "malam", "pagi", "siang", "kalian",
-       "sil", "tris"],
-  ):
+  t = str(teks_untuk_deteksi).lower()
+
+  if _match_any_kata(t, TOPIC_SIGNAL_KEYWORDS[1]):
     return TOPIC_LABELS[1]
-  else:
+  elif _match_any_kata(t, TOPIC_SIGNAL_KEYWORDS[2]):
     return TOPIC_LABELS[2]
+  elif _match_any_kata(t, TOPIC_SIGNAL_KEYWORDS[3]):
+    return TOPIC_LABELS[3]
+  elif _match_any_kata(t, TOPIC_SIGNAL_KEYWORDS[4]):
+    return TOPIC_LABELS[4]
+  else:
+    return TOPIC_LABELS[5]
 
 
-# ==========================================================
-# REVISI #3: kategori channel resmi YouTube (topicDetails)
-# ==========================================================
-# Menjawab saran penguji: kategori dipetakan dari kategori resmi channel
-# di YouTube (topicCategories), bukan dari tipe konten yang ditentukan
-# sendiri (Gaming/Freetalk/dst).
 STANDARD_YOUTUBE_CATEGORIES = [
     "Gaming",
     "Entertainment",
@@ -284,16 +314,10 @@ STANDARD_YOUTUBE_CATEGORIES = [
 
 
 def _sederhanakan_topic_category(url_wikipedia):
-  # topicCategories dari YouTube API berbentuk URL wikipedia, misal:
-  # https://en.wikipedia.org/wiki/Video_game_culture
-  # Diringkas jadi nama yang gampang dibaca: "Video game culture"
   return url_wikipedia.rstrip("/").split("/")[-1].replace("_", " ")
 
 
 def _dapatkan_youtube_api_key():
-  # API key disimpan di Streamlit Secrets (Settings > Secrets di dashboard
-  # Streamlit Cloud), TIDAK pernah tampil di UI atau ke pengguna. Kalau
-  # belum diisi, sistem tetap jalan tapi kategori jadi "Tidak Diketahui".
   try:
     return st.secrets["YOUTUBE_API_KEY"]
   except Exception:
@@ -301,12 +325,6 @@ def _dapatkan_youtube_api_key():
 
 
 def ambil_kategori_channel_youtube(video_url, api_key):
-  """Ambil kategori resmi channel YouTube dari video_url lewat YouTube
-  Data API v3 (endpoint videos -> channelId -> channels.topicDetails).
-  Butuh API key sendiri (gratis, aktifkan 'YouTube Data API v3' di
-  Google Cloud Console). Return list nama kategori, atau None kalau
-  gagal / API key kosong / video tidak ditemukan.
-  """
   if not api_key:
     return None
   try:
@@ -455,16 +473,15 @@ def find_col(df, possible_names, default=None):
 col_vtuber = find_col(
     df_benchmark, ["vtuber", "nama", "channel", "creator"], "VTuber Name"
 )
-# REVISI: prioritaskan nama kolom kategori channel RESMI (hasil
-# fetch_kategori_youtube.py) kalau sudah ada di file Excel dataset.
-# Kalau belum ada, fallback ke kolom kategori konten lama seperti sebelum
-# nya, supaya app tetap jalan sebelum kamu sempat update datasetnya.
 col_stream = find_col(
     df_benchmark,
     [
-        "kategori channel", "channel category", "official category",
-        "kategori resmi", "topic categor",
-        "stream", "kategori", "category", "type",
+        # nama kolom resmi diprioritaskan lebih dulu supaya grafik
+        # kategori SELALU narik dari kolom kategori channel YouTube,
+        # bukan tercampur/ke-fallback diam-diam ke kolom lain.
+        "kategori channel (youtube)", "kategori channel", "channel category",
+        "official category", "kategori resmi", "topic categor",
+        "kategori", "category", "stream", "type",
     ],
     "Stream Type",
 )
@@ -488,8 +505,7 @@ col_text_raw = find_col(
     ],
 )
 
-# Map nomor topik LDA ke label deskriptif (dibangun otomatis dari
-# TOPIC_LABELS supaya penamaan topik selalu konsisten di seluruh dashboard)
+# Map nomor topik LDA ke label deskriptif
 TOPIC_MAP = {}
 for _num, _label in TOPIC_LABELS.items():
   TOPIC_MAP[_num] = _label
@@ -515,34 +531,42 @@ if not df_benchmark.empty:
   ].astype(str).str.lower().isin(["general", "nan", "", "none", "null"])
 
   if mask_invalid.any():
-    if col_text_raw and col_text_raw in df_benchmark.columns:
-      t_series = df_benchmark[col_text_raw].astype(str).str.lower()
-      c4 = t_series.str.contains(
-          r"otsu|otsukare|makasih|terimakasih|stream|terima kasih|\bka\b|\bkak\b",
-          regex=True,
-      )
-      c5 = t_series.str.contains(
-          r"wkwk|wkwkwk|haha|hahaha|xixi|lol|suka|ngakak|lagi", regex=True
-      )
-      c3 = t_series.str.contains(
-          r"selamat|datang|welcome|live|semoga|\bthe\b", regex=True
-      )
-      c1 = t_series.str.contains(
-          r"halo|hai|bang|malam|pagi|siang|kalian|sil|tris", regex=True
-      )
+    # REVISI: dipetakan ulang pakai TOPIC_SIGNAL_KEYWORDS yang sama
+    # dengan deteksi_topik_realtime(), jadi label topik konsisten antara
+    # mode ekstraksi realtime dan dashboard benchmark. Prioritaskan
+    # kolom teks yang SUDAH bersih (nama kolom mengandung "pesan bersih"
+    # atau "clean_text") supaya tidak ikut kebawa kata filler mentah;
+    # kalau dataset belum punya kolom bersih, baru fallback ke kolom
+    # teks mentah yang ditemukan (col_text_raw).
+    col_teks_untuk_klasifikasi = find_col(
+        df_benchmark, ["pesan bersih", "clean_text"], None
+    ) or col_text_raw
 
-      fallback = pd.Series(TOPIC_LABELS[2], index=df_benchmark.index)
-      fallback[c1] = TOPIC_LABELS[1]
-      fallback[c3] = TOPIC_LABELS[3]
-      fallback[c5] = TOPIC_LABELS[5]
+    if col_teks_untuk_klasifikasi and col_teks_untuk_klasifikasi in df_benchmark.columns:
+      t_series = df_benchmark[col_teks_untuk_klasifikasi].astype(str).str.lower()
+
+      def _buat_pola(daftar_kata):
+        return "|".join(rf"\b{re.escape(k)}\b" for k in daftar_kata)
+
+      c1 = t_series.str.contains(_buat_pola(TOPIC_SIGNAL_KEYWORDS[1]), regex=True)
+      c2 = t_series.str.contains(_buat_pola(TOPIC_SIGNAL_KEYWORDS[2]), regex=True)
+      c3 = t_series.str.contains(_buat_pola(TOPIC_SIGNAL_KEYWORDS[3]), regex=True)
+      c4 = t_series.str.contains(_buat_pola(TOPIC_SIGNAL_KEYWORDS[4]), regex=True)
+
+      # Topik 5 (Obrolan Bebas/Lain-lain) jadi kategori sisa untuk baris
+      # yang tidak cocok kata kunci topik 1-4 mana pun.
+      fallback = pd.Series(TOPIC_LABELS[5], index=df_benchmark.index)
       fallback[c4] = TOPIC_LABELS[4]
+      fallback[c3] = TOPIC_LABELS[3]
+      fallback[c2] = TOPIC_LABELS[2]
+      fallback[c1] = TOPIC_LABELS[1]
 
       df_benchmark[col_topik] = df_benchmark[col_topik].where(
           ~mask_invalid, fallback
       )
     else:
       df_benchmark[col_topik] = df_benchmark[col_topik].replace(
-          ["General", "nan", "", "none", "null"], TOPIC_LABELS[2]
+          ["General", "nan", "", "none", "null"], TOPIC_LABELS[5]
       )
 
 COLOR_POS = "#10B981"
@@ -652,8 +676,6 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
       if "?si=" in clean_url:
         clean_url = clean_url.split("?si=")[0]
 
-      # Deteksi kategori channel otomatis dari kategori resmi YouTube.
-      # Sepenuhnya otomatis, tidak ada pilihan manual ke pengguna.
       youtube_api_key = _dapatkan_youtube_api_key()
       hasil_auto = (
           ambil_kategori_channel_youtube(clean_url, youtube_api_key)
@@ -680,9 +702,14 @@ if mode_pilihan == "Ekstraksi Live Chat (Realtime)":
           raw_message_count += 1
           komentar_asli = msg.get("comment", "")
           if komentar_asli:
+            # Pesan Bersih (Sastrawi) -> dipakai utk model sentimen &
+            # grafik kata kunci. Teks deteksi (tanpa stopword-stripping)
+            # -> khusus dipakai utk klasifikasi topik, lihat catatan di
+            # normalize_untuk_deteksi().
             clean_text = preprocess_text(komentar_asli)
+            teks_deteksi = normalize_untuk_deteksi(komentar_asli)
             sentiment = prediksi_sentimen_ml(clean_text, komentar_asli)
-            topik_lda = deteksi_topik_realtime(clean_text)
+            topik_lda = deteksi_topik_realtime(teks_deteksi)
 
             extracted_rows.append({
                 "Username": msg.get("user_display_name", "Anonymous"),
@@ -1234,15 +1261,15 @@ else:
               st.markdown(f"* **{_label}** — *{_teks_kata}*")
           else:
             st.warning(
-                "Kolom teks bersih tidak ditemukan di dataset ini (dicari"
-                " lewat nama kolom seperti 'Pesan Bersih', 'clean_text',"
-                " dst), jadi kata kunci aktual belum bisa dihitung."
-                " Menampilkan referensi lama sebagai gantinya — ini masih"
-                " teks hardcode versi sebelum retrain, kemungkinan besar"
-                " sudah tidak sesuai data terbaru:"
+                "Kolom teks bersih ('Pesan Bersih'/'clean_text') tidak"
+                " ditemukan di dataset ini, jadi kata kunci aktual belum"
+                " bisa dihitung. Timpa file dataset dengan versi yang"
+                " sudah punya kolom teks bersih (hasil preprocess_text)"
+                " supaya daftar kata kunci di sini bisa tampil — tidak"
+                " ada lagi teks contoh/hardcode yang ditampilkan sebagai"
+                " pengganti, untuk menghindari kata yang sudah tidak"
+                " relevan dengan data sebenarnya."
             )
-            for _num, _label in TOPIC_LABELS.items():
-              st.markdown(f"* **{_label}** — *{TOPIC_KEYWORD_HINTS[_num]}*")
 
         col_a, col_b = st.columns(2)
         with col_a:
@@ -1476,12 +1503,6 @@ else:
           ]
           df_table_20 = pd.DataFrame(data_20_vtuber)
 
-          # REVISI: kolom "Kategori Konten" yang dulu itu observasi PRIBADI
-          # (ditulis manual pas awal riset, sebelum ada masukan penguji).
-          # Sekarang diganti supaya IKUT kategori resmi YouTube yang sudah
-          # ada di file dataset (col_stream), sesuai masukan penguji.
-          # Kalau dataset belum punya kecocokan buat VTuber tertentu, baru
-          # fallback ke observasi manual lama (ditandai jelas di tabelnya).
           def _normalisasi_nama(teks):
             return re.sub(r"[^a-z0-9]", "", str(teks).lower())
 
